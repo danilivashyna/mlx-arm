@@ -31,6 +31,7 @@ set(COMPUTE_SHADERS
     matmul_fp16.comp
     matmul_vectorized.comp
     matmul_subgroup.comp
+    matmul_q4_0.comp
 )
 
 # Compile each shader

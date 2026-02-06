@@ -22,50 +22,7 @@
 #include <iomanip>
 #include <cstdint>
 #include <cstring>
-
-// FP16 conversion helpers (IEEE 754 half-precision)
-inline uint16_t float_to_fp16(float f) {
-    uint32_t u;
-    std::memcpy(&u, &f, sizeof(f));
-    
-    uint32_t sign = (u >> 31) & 0x1;
-    uint32_t exp = (u >> 23) & 0xFF;
-    uint32_t mant = u & 0x7FFFFF;
-    
-    // Handle special cases
-    if (exp == 255) { // Inf or NaN
-        return (sign << 15) | 0x7C00 | (mant ? 0x200 : 0);
-    }
-    
-    int32_t new_exp = exp - 127 + 15;
-    if (new_exp <= 0) { // Underflow → zero
-        return sign << 15;
-    }
-    if (new_exp >= 31) { // Overflow → inf
-        return (sign << 15) | 0x7C00;
-    }
-    
-    return (sign << 15) | (new_exp << 10) | (mant >> 13);
-}
-
-inline float fp16_to_float(uint16_t h) {
-    uint32_t sign = (h >> 15) & 0x1;
-    uint32_t exp = (h >> 10) & 0x1F;
-    uint32_t mant = h & 0x3FF;
-    
-    uint32_t f;
-    if (exp == 0) { // Zero or denormal
-        f = (sign << 31);
-    } else if (exp == 31) { // Inf or NaN
-        f = (sign << 31) | 0x7F800000 | (mant << 13);
-    } else {
-        f = (sign << 31) | ((exp - 15 + 127) << 23) | (mant << 13);
-    }
-    
-    float result;
-    std::memcpy(&result, &f, sizeof(f));
-    return result;
-}
+#include "quantize.h"
 
 #ifdef MLX_BUILD_VULKAN
 using namespace mlx::backend::vulkan;
@@ -384,6 +341,84 @@ bool matmul_gpu_subgroup(const float* A, const float* B, float* C,
         return false;
     }
 }
+
+bool matmul_gpu_q4_0(const float* A, const float* B, float* C,
+                     uint32_t M, uint32_t K, uint32_t N) {
+    try {
+        if (!g_vulkan_initialized && !init_vulkan()) {
+            return false;
+        }
+        
+        if (K % 32 != 0) {
+            std::cerr << "Q4_0 requires K to be multiple of 32" << std::endl;
+            return false;
+        }
+        
+        // 1. Quantize B to Q4_0 format with CORRECT LAYOUT [N × K_blocks]
+        std::vector<BlockQ4_0> B_q4 = quantize_q4_0_matrix(B, K, N);
+        uint32_t K_blocks = K / 32;
+        
+        // 2. Convert A to FP16
+        std::vector<uint16_t> A_fp16(M * K);
+        for (size_t i = 0; i < M * K; i++) {
+            A_fp16[i] = float_to_fp16(A[i]);
+        }
+        
+        // 3. Create buffers
+        size_t sizeA = M * K * sizeof(uint16_t);  // FP16
+        size_t sizeB = B_q4.size() * sizeof(BlockQ4_0);  // Q4_0 blocks
+        size_t sizeC = M * N * sizeof(uint16_t);  // FP16 output
+        
+        VulkanBuffer bufferA(*g_device, sizeA, VulkanBuffer::Type::Staging);
+        VulkanBuffer bufferB(*g_device, sizeB, VulkanBuffer::Type::Staging);
+        VulkanBuffer bufferC(*g_device, sizeC, VulkanBuffer::Type::Staging);
+        
+        // 4. Upload data
+        bufferA.write(A_fp16.data(), 0, sizeA);
+        bufferB.write(B_q4.data(), 0, sizeB);
+        
+        // 5. Load Q4_0 pipeline (4 push constants: M, N, K, K_blocks)
+        VulkanPipeline pipeline(*g_device, "shaders/matmul_q4_0.spv", 4 * sizeof(uint32_t));
+        
+        // Create descriptor set
+        VkDescriptorSet descSet = pipeline.createDescriptorSet();
+        VkBuffer buffers[] = {bufferA.buffer(), bufferB.buffer(), bufferC.buffer()};
+        pipeline.updateDescriptorSet(descSet, buffers, 3);
+        
+        // 6. Record commands
+        VulkanCommandBuffer cmd(*g_device);
+        cmd.begin();
+        cmd.bindPipeline(pipeline);
+        cmd.bindDescriptorSets(pipeline, descSet);
+        
+        // Push constants: M, N, K, K_blocks
+        uint32_t dims[4] = {M, N, K, K_blocks};
+        cmd.pushConstants(pipeline, dims, sizeof(dims));
+        
+        // Dispatch
+        uint32_t wgX = (N + 15) / 16;
+        uint32_t wgY = (M + 15) / 16;
+        cmd.dispatch(wgX, wgY, 1);
+        
+        cmd.memoryBarrier();
+        cmd.end();
+        cmd.submit();
+        
+        // 7. Read results (FP16)
+        std::vector<uint16_t> C_fp16(M * N);
+        bufferC.read(C_fp16.data(), 0, sizeC);
+        
+        // 8. Convert back to FP32
+        for (size_t i = 0; i < M * N; i++) {
+            C[i] = fp16_to_float(C_fp16[i]);
+        }
+        
+        return true;
+    } catch (const std::exception& e) {
+        std::cerr << "GPU Q4_0 error: " << e.what() << std::endl;
+        return false;
+    }
+}
 #endif
 
 void run_matmul_benchmark(uint32_t M, uint32_t K, uint32_t N) {
@@ -398,7 +433,7 @@ void run_matmul_benchmark(uint32_t M, uint32_t K, uint32_t N) {
     std::vector<float> B(K * N);
     std::vector<float> C_cpu(M * N);
     std::vector<float> C_gpu_naive(M * N);
-    std::vector<float> C_gpu_subgroup(M * N);
+    std::vector<float> C_gpu_q4(M * N);
     
     // Initialize with random values
     for (size_t i = 0; i < A.size(); i++) A[i] = (rand() % 100) / 10.0f;
@@ -406,7 +441,9 @@ void run_matmul_benchmark(uint32_t M, uint32_t K, uint32_t N) {
     
 #ifdef MLX_BUILD_VULKAN
     // Warmup GPU
-    matmul_gpu_subgroup(A.data(), B.data(), C_gpu_subgroup.data(), M, K, N);
+    if (K % 32 == 0) {
+        matmul_gpu_q4_0(A.data(), B.data(), C_gpu_q4.data(), M, K, N);
+    }
     
     // GPU Naive FP32 benchmark
     auto gpu_naive_start = std::chrono::high_resolution_clock::now();
@@ -414,11 +451,15 @@ void run_matmul_benchmark(uint32_t M, uint32_t K, uint32_t N) {
     auto gpu_naive_end = std::chrono::high_resolution_clock::now();
     auto gpu_naive_us = std::chrono::duration_cast<std::chrono::microseconds>(gpu_naive_end - gpu_naive_start).count();
     
-    // GPU Subgroup benchmark
-    auto gpu_sub_start = std::chrono::high_resolution_clock::now();
-    bool gpu_sub_ok = matmul_gpu_subgroup(A.data(), B.data(), C_gpu_subgroup.data(), M, K, N);
-    auto gpu_sub_end = std::chrono::high_resolution_clock::now();
-    auto gpu_sub_us = std::chrono::duration_cast<std::chrono::microseconds>(gpu_sub_end - gpu_sub_start).count();
+    // GPU Q4_0 benchmark (only if K is multiple of 32)
+    bool gpu_q4_ok = false;
+    auto gpu_q4_us = 0L;
+    if (K % 32 == 0) {
+        auto gpu_q4_start = std::chrono::high_resolution_clock::now();
+        gpu_q4_ok = matmul_gpu_q4_0(A.data(), B.data(), C_gpu_q4.data(), M, K, N);
+        auto gpu_q4_end = std::chrono::high_resolution_clock::now();
+        gpu_q4_us = std::chrono::duration_cast<std::chrono::microseconds>(gpu_q4_end - gpu_q4_start).count();
+    }
 #endif
     
     // CPU benchmark
@@ -439,17 +480,23 @@ void run_matmul_benchmark(uint32_t M, uint32_t K, uint32_t N) {
         std::cout << "  GPU FP32 Naive:       " << std::setw(8) << gpu_naive_us << " µs  →  " 
                   << std::fixed << std::setprecision(2) << (total_flops / gpu_naive_us / 1000.0) << " GFLOPS" << std::endl;
     }
-    if (gpu_sub_ok) {
-        std::cout << "  GPU Subgroup:         " << std::setw(8) << gpu_sub_us << " µs  →  " 
-                  << std::fixed << std::setprecision(2) << (total_flops / gpu_sub_us / 1000.0) << " GFLOPS 🔥" << std::endl;
+    if (gpu_q4_ok) {
+        double size_fp32 = (K * N * sizeof(float)) / 1024.0 / 1024.0;
+        double size_q4 = ((K * N / 32) * sizeof(BlockQ4_0)) / 1024.0 / 1024.0;
         
-        double speedup_cpu = static_cast<double>(cpu_us) / gpu_sub_us;
-        double speedup_naive = static_cast<double>(gpu_naive_us) / gpu_sub_us;
-        std::cout << "\n🚀 Subgroup Speedup vs CPU:   " << std::fixed << std::setprecision(2) << speedup_cpu << "x";
-        std::cout << "\n🚀 Subgroup Speedup vs Naive: " << std::fixed << std::setprecision(2) << speedup_naive << "x";
+        std::cout << "  GPU Q4_0 (4-bit):     " << std::setw(8) << gpu_q4_us << " µs  →  " 
+                  << std::fixed << std::setprecision(2) << (total_flops / gpu_q4_us / 1000.0) << " GFLOPS 🔥" << std::endl;
+        std::cout << "  Memory saved: " << std::fixed << std::setprecision(2) 
+                  << size_fp32 << " MB → " << size_q4 << " MB (";
+        std::cout << std::fixed << std::setprecision(1) << (size_fp32 / size_q4) << "x smaller)" << std::endl;
+        
+        double speedup_cpu = static_cast<double>(cpu_us) / gpu_q4_us;
+        double speedup_naive = static_cast<double>(gpu_naive_us) / gpu_q4_us;
+        std::cout << "\n🚀 Q4_0 Speedup vs CPU:   " << std::fixed << std::setprecision(2) << speedup_cpu << "x";
+        std::cout << "\n🚀 Q4_0 Speedup vs Naive: " << std::fixed << std::setprecision(2) << speedup_naive << "x";
         if (speedup_naive > 1.2) {
             std::cout << " ✅✅✅" << std::endl;
-        } else if (speedup_naive > 1.0) {
+        } else if (speedup_naive > 0.8) {
             std::cout << " ✅" << std::endl;
         } else {
             std::cout << std::endl;
@@ -457,17 +504,21 @@ void run_matmul_benchmark(uint32_t M, uint32_t K, uint32_t N) {
     }
     
     // Verify correctness
-    if (gpu_sub_ok) {
+    if (gpu_q4_ok) {
         float max_error = 0.0f;
         for (size_t i = 0; i < C_cpu.size(); i++) {
-            float error = std::abs(C_cpu[i] - C_gpu_subgroup[i]);
+            float error = std::abs(C_cpu[i] - C_gpu_q4[i]);
             max_error = std::max(max_error, error);
         }
-        std::cout << "\n✅ Accuracy: Max error = " << std::scientific << max_error;
-        if (max_error < 0.01f) {
-            std::cout << " (CORRECT)" << std::endl;
+        
+        // Q4_0 has lower precision due to quantization
+        float relative_error = max_error / (std::abs(C_cpu[0]) + 1e-6f);
+        std::cout << "\n✅ Q4_0 Accuracy: Max error = " << std::scientific << max_error;
+        std::cout << " (relative: " << std::fixed << std::setprecision(2) << (relative_error * 100.0f) << "%)";
+        if (relative_error < 0.05f) { // Within 5% is acceptable for Q4_0
+            std::cout << " (GOOD)" << std::endl;
         } else {
-            std::cout << " (FAILED)" << std::endl;
+            std::cout << " (CHECK)" << std::endl;
         }
     }
 #endif

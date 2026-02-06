@@ -1,0 +1,81 @@
+#version 450
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : enable
+#extension GL_EXT_shader_explicit_arithmetic_types_int16 : enable
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : enable
+#extension GL_EXT_shader_16bit_storage : enable
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+// Q4_0 block structure (18 bytes)
+struct BlockQ4_0 {
+    float16_t scale;     // Scale factor (2 bytes)
+    uint8_t weights[16]; // 32 weights packed in 16 bytes (4 bits each)
+};
+
+layout(binding = 0) readonly buffer MatrixA { 
+    float16_t A[];  // Activations in FP16
+};
+layout(binding = 1) readonly buffer MatrixB_Q4 { 
+    BlockQ4_0 B[];  // Quantized weights (Q4_0 format)
+};
+layout(binding = 2) writeonly buffer MatrixC { 
+    float16_t C[];  // Output in FP16
+};
+
+layout(push_constant) uniform Dims {
+    uint M;          // rows of A
+    uint N;          // cols of B
+    uint K;          // cols of A / rows of B (must be multiple of 32)
+    uint K_blocks;   // K / 32
+} dims;
+
+// Dequantize 4-bit value on-the-fly
+float16_t dequant_q4(uint packed_byte, uint idx, float16_t scale) {
+    uint val;
+    if ((idx & 1u) == 0u) {
+        val = packed_byte & 0x0Fu;  // Lower 4 bits
+    } else {
+        val = (packed_byte >> 4u) & 0x0Fu;  // Upper 4 bits
+    }
+    
+    // Convert 0-15 → -8 to 7
+    int signed_val = int(val) - 8;
+    return scale * float16_t(signed_val);
+}
+
+void main() {
+    uint row = gl_GlobalInvocationID.y;
+    uint col = gl_GlobalInvocationID.x;
+    
+    if (row >= dims.M || col >= dims.N) return;
+    
+    // Mixed-precision accumulation: FP32 accumulator for accuracy
+    float sum = 0.0;
+    
+    // Iterate over K dimension in blocks of 32
+    for (uint block_idx = 0; block_idx < dims.K_blocks; block_idx++) {
+        // Load quantized block for column of B
+        // B is stored as [N × K_blocks] in row-major
+        uint b_block_offset = col * dims.K_blocks + block_idx;
+        BlockQ4_0 b_block = B[b_block_offset];
+        
+        // Process 32 weights in this block
+        for (uint i = 0; i < 32; i++) {
+            uint k = block_idx * 32 + i;
+            
+            // Load activation (FP16)
+            float16_t a_val = A[row * dims.K + k];
+            
+            // Dequantize weight on-the-fly (4-bit → FP16)
+            uint byte_idx = i / 2u;
+            uint packed_byte = uint(b_block.weights[byte_idx]);
+            float16_t b_val = dequant_q4(packed_byte, i, b_block.scale);
+            
+            // Accumulate in FP32 for precision
+            sum += float(a_val) * float(b_val);
+        }
+    }
+    
+    // Store result as FP16
+    C[row * dims.N + col] = float16_t(sum);
+}
