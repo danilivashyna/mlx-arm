@@ -1,0 +1,42 @@
+#version 450
+#extension GL_ARB_separate_shader_objects : enable
+
+// Naive matrix multiplication - baseline
+// C = A × B where A is [M×K], B is [K×N], C is [M×N]
+// Each thread computes one element of C
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer MatrixA {
+    float A[];
+};
+
+layout(set = 0, binding = 1) readonly buffer MatrixB {
+    float B[];
+};
+
+layout(set = 0, binding = 2) buffer MatrixC {
+    float C[];
+};
+
+layout(push_constant) uniform Dimensions {
+    uint M;  // Rows of A
+    uint K;  // Cols of A, Rows of B
+    uint N;  // Cols of B
+} dims;
+
+void main() {
+    uint row = gl_GlobalInvocationID.y;
+    uint col = gl_GlobalInvocationID.x;
+    
+    if (row >= dims.M || col >= dims.N) {
+        return;
+    }
+    
+    float sum = 0.0;
+    for (uint k = 0; k < dims.K; k++) {
+        sum += A[row * dims.K + k] * B[k * dims.N + col];
+    }
+    
+    C[row * dims.N + col] = sum;
+}

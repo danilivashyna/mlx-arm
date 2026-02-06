@@ -26,6 +26,8 @@ file(MAKE_DIRECTORY ${SPIRV_OUTPUT_DIR})
 # List of compute shaders
 set(COMPUTE_SHADERS
     vector_add.comp
+    matmul_naive.comp
+    matmul_tiled.comp
 )
 
 # Compile each shader
