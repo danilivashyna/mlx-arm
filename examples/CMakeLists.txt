@@ -118,7 +118,16 @@ target_link_libraries(llama_inference PRIVATE
     mlx-core
 )
 
+# LLaMA inference with real weights
+add_executable(llama_inference_real
+    llama_inference_real.cpp
+)
+
+target_link_libraries(llama_inference_real PRIVATE
+    mlx-core
+)
+
 # Install examples
-install(TARGETS vector_add_example matmul_benchmark rmsnorm_benchmark silu_benchmark elemwise_multiply_benchmark rope_benchmark softmax_benchmark attention_test llama_inference
+install(TARGETS vector_add_example matmul_benchmark rmsnorm_benchmark silu_benchmark elemwise_multiply_benchmark rope_benchmark softmax_benchmark attention_test llama_inference llama_inference_real
     RUNTIME DESTINATION bin/examples
 )
