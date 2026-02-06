@@ -1,0 +1,54 @@
+// Element-wise Multiplication Kernel
+// Critical for LLaMA FFN: hidden = silu(gate_proj(x)) * up_proj(x)
+//
+// Formula: C[i] = A[i] * B[i]
+//
+// Properties:
+// - Memory-bound operation (2 reads + 1 write)
+// - Perfectly parallel (no dependencies)
+// - Simple FP16 arithmetic
+//
+// Usage in LLaMA FFN:
+//   gate = silu(matmul(x, gate_weights))
+//   up = matmul(x, up_weights)
+//   hidden = elemwise_multiply(gate, up)  // ← This kernel!
+
+#version 450
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : enable
+#extension GL_EXT_shader_16bit_storage : enable
+
+layout(local_size_x = 256) in;
+
+layout(binding = 0) readonly buffer InputA { 
+    float16_t input_a[]; 
+};
+
+layout(binding = 1) readonly buffer InputB { 
+    float16_t input_b[]; 
+};
+
+layout(binding = 2) writeonly buffer Output { 
+    float16_t output_data[]; 
+};
+
+layout(push_constant) uniform Dims {
+    uint num_elements;
+} dims;
+
+void main() {
+    uint idx = gl_GlobalInvocationID.x;
+    
+    if (idx >= dims.num_elements) {
+        return;
+    }
+    
+    // Load inputs (FP16 → FP32 for computation)
+    float a = float(input_a[idx]);
+    float b = float(input_b[idx]);
+    
+    // Element-wise multiply
+    float result = a * b;
+    
+    // Store output (FP32 → FP16)
+    output_data[idx] = float16_t(result);
+}

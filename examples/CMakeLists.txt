@@ -53,7 +53,21 @@ if(MLX_BUILD_VULKAN)
     target_compile_definitions(silu_benchmark PRIVATE MLX_BUILD_VULKAN)
 endif()
 
+# Element-wise multiply benchmark
+add_executable(elemwise_multiply_benchmark
+    elemwise_multiply_benchmark.cpp
+)
+
+target_link_libraries(elemwise_multiply_benchmark PRIVATE
+    mlx-core
+)
+
+if(MLX_BUILD_VULKAN)
+    target_link_libraries(elemwise_multiply_benchmark PRIVATE mlx-backend-vulkan)
+    target_compile_definitions(elemwise_multiply_benchmark PRIVATE MLX_BUILD_VULKAN)
+endif()
+
 # Install examples
-install(TARGETS vector_add_example matmul_benchmark rmsnorm_benchmark silu_benchmark
+install(TARGETS vector_add_example matmul_benchmark rmsnorm_benchmark silu_benchmark elemwise_multiply_benchmark
     RUNTIME DESTINATION bin/examples
 )

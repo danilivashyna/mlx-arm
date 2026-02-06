@@ -34,6 +34,7 @@ set(COMPUTE_SHADERS
     matmul_q4_0.comp
     rms_norm.comp
     silu.comp
+    elemwise_multiply.comp
 )
 
 # Compile each shader
