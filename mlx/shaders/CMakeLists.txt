@@ -32,6 +32,7 @@ set(COMPUTE_SHADERS
     matmul_vectorized.comp
     matmul_subgroup.comp
     matmul_q4_0.comp
+    rms_norm.comp
 )
 
 # Compile each shader

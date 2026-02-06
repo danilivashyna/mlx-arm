@@ -1,0 +1,91 @@
+// RMSNorm kernel - Critical for Llama/Mistral/Gemma
+// Root Mean Square Layer Normalization
+//
+// Formula: output = (x / RMS(x)) * weight
+//          where RMS(x) = sqrt(mean(x^2) + eps)
+//
+// Input tensor: [batch_size × seq_len × hidden_dim]
+// Weight tensor: [hidden_dim]
+// Output tensor: [batch_size × seq_len × hidden_dim]
+//
+// Memory layout: Row-major (C-style)
+// Dispatch: One workgroup per token (batch_size × seq_len workgroups)
+
+#version 450
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : enable
+#extension GL_EXT_shader_16bit_storage : enable
+
+layout(local_size_x = 256) in;
+
+layout(binding = 0) readonly buffer Input { 
+    float16_t input_data[]; 
+};
+
+layout(binding = 1) readonly buffer Weight { 
+    float16_t weight[]; 
+};
+
+layout(binding = 2) writeonly buffer Output { 
+    float16_t output_data[]; 
+};
+
+layout(push_constant) uniform Dims {
+    uint batch_size;
+    uint seq_len;
+    uint hidden_dim;
+    float eps;
+} dims;
+
+// Shared memory for parallel reduction
+shared float shared_sum[256];
+
+void main() {
+    // Each workgroup processes one token
+    uint token_idx = gl_WorkGroupID.x;
+    uint tid = gl_LocalInvocationID.x;
+    
+    if (token_idx >= dims.batch_size * dims.seq_len) {
+        return;
+    }
+    
+    uint offset = token_idx * dims.hidden_dim;
+    
+    // Step 1: Compute sum of squares (parallel reduction)
+    // Each thread accumulates multiple elements
+    // CRITICAL: Initialize to 0 in case hidden_dim < 256
+    float local_sum = 0.0;
+    for (uint i = tid; i < dims.hidden_dim; i += 256) {
+        float val = float(input_data[offset + i]);
+        local_sum += val * val;
+    }
+    
+    // Store thread-local sum to shared memory
+    shared_sum[tid] = local_sum;
+    barrier();
+    
+    // Step 2: Parallel reduction tree
+    // Reduce 256 → 128 → 64 → 32 → 16 → 8 → 4 → 2 → 1
+    for (uint s = 128; s > 0; s >>= 1) {
+        if (tid < s) {
+            shared_sum[tid] += shared_sum[tid + s];
+        }
+        memoryBarrierShared();
+        barrier();
+    }
+    
+    // Step 3: Compute RMS (broadcast to all threads)
+    // CRITICAL: Ensure shared memory is visible
+    memoryBarrierShared();
+    barrier();
+    float variance = shared_sum[0] / float(dims.hidden_dim);
+    float rms_inv = inversesqrt(variance + dims.eps);
+    
+    // Step 4: Normalize and apply weight
+    // Each thread writes multiple outputs
+    for (uint i = tid; i < dims.hidden_dim; i += 256) {
+        float val = float(input_data[offset + i]);
+        float normalized = val * rms_inv;
+        float weighted = normalized * float(weight[i]);
+        output_data[offset + i] = float16_t(weighted);
+    }
+}
