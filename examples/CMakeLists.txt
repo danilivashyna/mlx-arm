@@ -95,7 +95,21 @@ if(MLX_BUILD_VULKAN)
     target_compile_definitions(softmax_benchmark PRIVATE MLX_BUILD_VULKAN)
 endif()
 
+# Attention pipeline test
+add_executable(attention_test
+    attention_test.cpp
+)
+
+target_link_libraries(attention_test PRIVATE
+    mlx-core
+)
+
+if(MLX_BUILD_VULKAN)
+    target_link_libraries(attention_test PRIVATE mlx-backend-vulkan)
+    target_compile_definitions(attention_test PRIVATE MLX_BUILD_VULKAN)
+endif()
+
 # Install examples
-install(TARGETS vector_add_example matmul_benchmark rmsnorm_benchmark silu_benchmark elemwise_multiply_benchmark rope_benchmark softmax_benchmark
+install(TARGETS vector_add_example matmul_benchmark rmsnorm_benchmark silu_benchmark elemwise_multiply_benchmark rope_benchmark softmax_benchmark attention_test
     RUNTIME DESTINATION bin/examples
 )
