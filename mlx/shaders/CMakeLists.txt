@@ -36,6 +36,7 @@ set(COMPUTE_SHADERS
     silu.comp
     elemwise_multiply.comp
     rope.comp
+    softmax.comp
 )
 
 # Compile each shader

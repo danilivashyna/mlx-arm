@@ -1,0 +1,92 @@
+// Softmax - Numerically Stable Implementation
+// Used in Attention mechanism: softmax(Q×K^T / sqrt(d))
+//
+// Algorithm (3 steps):
+//   1. Find max value (for numerical stability)
+//   2. Compute exp(x - max) and sum
+//   3. Normalize: output = exp(x - max) / sum
+//
+// Input/Output: [batch_size × seq_len]
+//   - batch_size = num_heads × seq_len_q (each row is independent)
+//   - seq_len = seq_len_kv (dimension to softmax over)
+//
+// Numerical stability: exp(x - max) prevents overflow
+// Verification: sum(softmax(x)) = 1.0 for each row
+
+#version 450
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : enable
+#extension GL_EXT_shader_16bit_storage : enable
+
+layout(local_size_x = 256) in;
+
+layout(binding = 0) buffer InputOutput { 
+    float16_t data[];  // In-place operation
+};
+
+layout(push_constant) uniform Dims {
+    uint batch_size;   // Number of independent rows
+    uint seq_len;      // Dimension to softmax over
+} dims;
+
+// Shared memory for reductions
+shared float shared_max[256];
+shared float shared_sum[256];
+
+void main() {
+    uint batch_idx = gl_WorkGroupID.x;
+    uint tid = gl_LocalInvocationID.x;
+    
+    if (batch_idx >= dims.batch_size) return;
+    
+    uint offset = batch_idx * dims.seq_len;
+    
+    // === STEP 1: Find max (numerical stability) ===
+    float local_max = -65504.0;  // FP16 min value
+    
+    for (uint i = tid; i < dims.seq_len; i += 256) {
+        local_max = max(local_max, float(data[offset + i]));
+    }
+    
+    shared_max[tid] = local_max;
+    barrier();
+    
+    // Reduction tree for max (log2(256) = 8 steps)
+    for (uint s = 128; s > 0; s >>= 1) {
+        if (tid < s) {
+            shared_max[tid] = max(shared_max[tid], shared_max[tid + s]);
+        }
+        barrier();
+    }
+    
+    float global_max = shared_max[0];
+    barrier();
+    
+    // === STEP 2: Compute exp(x - max) and sum ===
+    float local_sum = 0.0;
+    
+    for (uint i = tid; i < dims.seq_len; i += 256) {
+        float val = float(data[offset + i]);
+        float exp_val = exp(val - global_max);
+        data[offset + i] = float16_t(exp_val);  // Store temporarily
+        local_sum += exp_val;
+    }
+    
+    shared_sum[tid] = local_sum;
+    barrier();
+    
+    // Reduction tree for sum
+    for (uint s = 128; s > 0; s >>= 1) {
+        if (tid < s) {
+            shared_sum[tid] += shared_sum[tid + s];
+        }
+        barrier();
+    }
+    
+    float global_sum = shared_sum[0];
+    barrier();
+    
+    // === STEP 3: Normalize ===
+    for (uint i = tid; i < dims.seq_len; i += 256) {
+        data[offset + i] = float16_t(float(data[offset + i]) / global_sum);
+    }
+}

@@ -81,7 +81,21 @@ if(MLX_BUILD_VULKAN)
     target_compile_definitions(rope_benchmark PRIVATE MLX_BUILD_VULKAN)
 endif()
 
+# Softmax benchmark
+add_executable(softmax_benchmark
+    softmax_benchmark.cpp
+)
+
+target_link_libraries(softmax_benchmark PRIVATE
+    mlx-core
+)
+
+if(MLX_BUILD_VULKAN)
+    target_link_libraries(softmax_benchmark PRIVATE mlx-backend-vulkan)
+    target_compile_definitions(softmax_benchmark PRIVATE MLX_BUILD_VULKAN)
+endif()
+
 # Install examples
-install(TARGETS vector_add_example matmul_benchmark rmsnorm_benchmark silu_benchmark elemwise_multiply_benchmark rope_benchmark
+install(TARGETS vector_add_example matmul_benchmark rmsnorm_benchmark silu_benchmark elemwise_multiply_benchmark rope_benchmark softmax_benchmark
     RUNTIME DESTINATION bin/examples
 )
