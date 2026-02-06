@@ -27,7 +27,15 @@ layout(push_constant) uniform Dims {
     uint N;          // cols of B
     uint K;          // cols of A / rows of B (must be multiple of 32)
     uint K_blocks;   // K / 32
+    uint apply_silu; // 1 = apply SiLU activation, 0 = skip (for fused FFN)
 } dims;
+
+// Fast sigmoid approximation for fused SiLU activation
+float fast_sigmoid(float x) {
+    // Clamp for numerical stability
+    x = clamp(x, -10.0, 10.0);
+    return 1.0 / (1.0 + exp(-x));
+}
 
 // Dequantize 4-bit value on-the-fly
 float16_t dequant_q4(uint packed_byte, uint idx, float16_t scale) {
@@ -74,6 +82,13 @@ void main() {
             // Accumulate in FP32 for precision
             sum += float(a_val) * float(b_val);
         }
+    }
+    
+    // FUSED ACTIVATION: Apply SiLU if requested
+    // SiLU(x) = x * sigmoid(x) = x / (1 + exp(-x))
+    // This saves a separate kernel dispatch + memory round-trip!
+    if (dims.apply_silu == 1u) {
+        sum = sum * fast_sigmoid(sum);
     }
     
     // Store result as FP16

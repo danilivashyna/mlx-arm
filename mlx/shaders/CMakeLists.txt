@@ -33,6 +33,7 @@ set(COMPUTE_SHADERS
     matmul_subgroup.comp
     matmul_q4_0.comp
     rms_norm.comp
+    silu.comp
 )
 
 # Compile each shader
