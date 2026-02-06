@@ -39,6 +39,11 @@ public:
     VkPhysicalDevice physical_device() const { return physical_device_; }
     
     /**
+     * Get physical device handle (alternative name for compatibility)
+     */
+    VkPhysicalDevice physicalDevice() const { return physical_device_; }
+    
+    /**
      * Get compute queue
      */
     VkQueue compute_queue() const { return compute_queue_; }

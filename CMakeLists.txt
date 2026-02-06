@@ -91,10 +91,13 @@ if(ANDROID)
     add_subdirectory(android)
 endif()
 
-# Python bindings
-if(MLX_BUILD_PYTHON)
+# Python bindings (optional)
+if(MLX_BUILD_PYTHON AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/python")
     add_subdirectory(python)
 endif()
+
+# Shaders (must be built first)
+add_subdirectory(mlx/shaders)
 
 # Examples
 add_subdirectory(examples)

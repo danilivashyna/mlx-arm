@@ -41,7 +41,7 @@ cmake .. \
     -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK/build/cmake/android.toolchain.cmake \
     -DANDROID_ABI=$ANDROID_ABI \
     -DANDROID_PLATFORM=$ANDROID_PLATFORM \
-    -DANDROID_STL=c++_shared \
+    -DANDROID_STL=c++_static \
     -DMLX_BUILD_VULKAN=ON \
     -DMLX_BUILD_OPENCL=OFF \
     -DMLX_BUILD_PYTHON=OFF \

@@ -66,6 +66,30 @@ public:
     VkPhysicalDevice find_best_compute_device() const;
     
     /**
+     * Get physical device by index.
+     * @param index Device index (0 = best device)
+     * @return Physical device handle
+     */
+    VkPhysicalDevice physical_device(size_t index = 0) const;
+    
+    /**
+     * Get device name.
+     * @param device Physical device (nullptr = best device)
+     * @return Device name string
+     */
+    std::string device_name(VkPhysicalDevice device = VK_NULL_HANDLE) const;
+    
+    /**
+     * Check if device supports FP16.
+     */
+    bool supports_fp16(VkPhysicalDevice device = VK_NULL_HANDLE) const;
+    
+    /**
+     * Check if device supports subgroup operations.
+     */
+    bool supports_subgroups(VkPhysicalDevice device = VK_NULL_HANDLE) const;
+    
+    /**
      * Get required instance extensions
      */
     static std::vector<const char*> get_required_instance_extensions();

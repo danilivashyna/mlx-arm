@@ -30,9 +30,15 @@ if(ANDROID)
         log
     )
 else()
-    target_link_libraries(mlx-backend-vulkan PUBLIC
-        Vulkan::Vulkan
-    )
+    # macOS/Linux: only link if Vulkan was actually found
+    if(TARGET Vulkan::Vulkan)
+        target_link_libraries(mlx-backend-vulkan PUBLIC Vulkan::Vulkan)
+    elseif(Vulkan_LIBRARY)
+        target_link_libraries(mlx-backend-vulkan PUBLIC ${Vulkan_LIBRARY})
+        target_include_directories(mlx-backend-vulkan PUBLIC ${Vulkan_INCLUDE_DIR})
+    else()
+        message(WARNING "Vulkan not found on this system")
+    endif()
 endif()
 
 target_compile_definitions(mlx-backend-vulkan PUBLIC

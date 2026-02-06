@@ -1,0 +1,33 @@
+#version 450
+#extension GL_ARB_separate_shader_objects : enable
+
+// Workgroup size optimized for Adreno 740
+// Snapdragon 8 Gen 2 has 6 shader cores, prefer multiples of 64
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+// Storage buffers for input/output arrays
+layout(set = 0, binding = 0) buffer InputA {
+    float a[];
+};
+
+layout(set = 0, binding = 1) buffer InputB {
+    float b[];
+};
+
+layout(set = 0, binding = 2) buffer Output {
+    float result[];
+};
+
+// Push constants for array size
+layout(push_constant) uniform PushConstants {
+    uint size;
+} pc;
+
+void main() {
+    uint gid = gl_GlobalInvocationID.x;
+    
+    // Bounds check
+    if (gid < pc.size) {
+        result[gid] = a[gid] + b[gid];
+    }
+}

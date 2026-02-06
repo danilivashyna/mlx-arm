@@ -8,6 +8,7 @@ target_link_libraries(vector_add_example PRIVATE
 
 if(MLX_BUILD_VULKAN)
     target_link_libraries(vector_add_example PRIVATE mlx-backend-vulkan)
+    target_compile_definitions(vector_add_example PRIVATE MLX_BUILD_VULKAN)
 endif()
 
 # Install example

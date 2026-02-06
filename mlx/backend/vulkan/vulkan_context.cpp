@@ -251,4 +251,58 @@ std::vector<const char*> VulkanContext::get_required_device_extensions() {
     return {};
 }
 
+VkPhysicalDevice VulkanContext::physical_device(size_t index) const {
+    auto devices = get_physical_devices();
+    if (devices.empty()) {
+        throw std::runtime_error("No Vulkan devices available");
+    }
+    if (index >= devices.size()) {
+        index = 0;
+    }
+    return devices[index];
+}
+
+std::string VulkanContext::device_name(VkPhysicalDevice device) const {
+    if (device == VK_NULL_HANDLE) {
+        device = find_best_compute_device();
+    }
+    auto props = get_device_properties(device);
+    return std::string(props.deviceName);
+}
+
+bool VulkanContext::supports_fp16(VkPhysicalDevice device) const {
+    if (device == VK_NULL_HANDLE) {
+        device = find_best_compute_device();
+    }
+    
+    // Check for 16-bit storage feature
+    VkPhysicalDevice16BitStorageFeatures storage16Features{};
+    storage16Features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES;
+    
+    VkPhysicalDeviceFeatures2 features2{};
+    features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+    features2.pNext = &storage16Features;
+    
+    vkGetPhysicalDeviceFeatures2(device, &features2);
+    
+    return storage16Features.storageBuffer16BitAccess;
+}
+
+bool VulkanContext::supports_subgroups(VkPhysicalDevice device) const {
+    if (device == VK_NULL_HANDLE) {
+        device = find_best_compute_device();
+    }
+    
+    VkPhysicalDeviceSubgroupProperties subgroupProps{};
+    subgroupProps.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES;
+    
+    VkPhysicalDeviceProperties2 props2{};
+    props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+    props2.pNext = &subgroupProps;
+    
+    vkGetPhysicalDeviceProperties2(device, &props2);
+    
+    return (subgroupProps.supportedStages & VK_SHADER_STAGE_COMPUTE_BIT) != 0;
+}
+
 }  // namespace mlx::backend::vulkan
