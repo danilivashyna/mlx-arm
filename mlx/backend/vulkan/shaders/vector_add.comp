@@ -1,0 +1,30 @@
+#version 450
+
+// Simple vector addition shader for proof-of-concept
+// Demonstrates basic Vulkan compute for MLX-ARM
+
+layout(local_size_x = 256) in;
+
+layout(set = 0, binding = 0) buffer InputA {
+    float a[];
+};
+
+layout(set = 0, binding = 1) buffer InputB {
+    float b[];
+};
+
+layout(set = 0, binding = 2) buffer Output {
+    float c[];
+};
+
+layout(push_constant) uniform PushConstants {
+    uint size;
+} params;
+
+void main() {
+    uint idx = gl_GlobalInvocationID.x;
+    
+    if (idx < params.size) {
+        c[idx] = a[idx] + b[idx];
+    }
+}

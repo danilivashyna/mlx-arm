@@ -1,0 +1,63 @@
+# Build directories
+build/
+build-*/
+cmake-build-*/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Android
+*.iml
+.gradle
+local.properties
+.DS_Store
+/captures
+.externalNativeBuild
+.cxx
+
+# Compiled binaries
+*.so
+*.a
+*.dylib
+*.dll
+*.exe
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+
+# SPIR-V binaries
+*.spv
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+Testing/
+CTestTestfile.cmake
+
+# Generated documentation
+docs/_build/
+site/

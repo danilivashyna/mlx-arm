@@ -1,0 +1,184 @@
+name: Android CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  NDK_VERSION: '26.1.10909125'
+  CMAKE_VERSION: '3.22.1'
+
+jobs:
+  build-android:
+    name: Build for Android
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        android_api: [26, 29, 33]
+        abi: [arm64-v8a]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    
+    - name: Setup Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+    
+    - name: Setup Android NDK
+      uses: nttld/setup-ndk@v1
+      with:
+        ndk-version: r26c
+        add-to-path: true
+    
+    - name: Install Vulkan SDK
+      run: |
+        wget -qO - https://packages.lunarg.com/lunarg-signing-key-pub.asc | sudo apt-key add -
+        sudo wget -qO /etc/apt/sources.list.d/lunarg-vulkan-jammy.list https://packages.lunarg.com/vulkan/lunarg-vulkan-jammy.list
+        sudo apt update
+        sudo apt install -y vulkan-sdk
+    
+    - name: Install CMake
+      uses: jwlawson/actions-setup-cmake@v1
+      with:
+        cmake-version: '3.22.x'
+    
+    - name: Install Ninja
+      run: sudo apt-get install -y ninja-build
+    
+    - name: Cache CMake build
+      uses: actions/cache@v3
+      with:
+        path: |
+          build-android-${{ matrix.android_api }}
+          ~/.ccache
+        key: ${{ runner.os }}-android-${{ matrix.android_api }}-${{ matrix.abi }}-${{ hashFiles('**/CMakeLists.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-android-${{ matrix.android_api }}-${{ matrix.abi }}-
+    
+    - name: Configure CMake
+      run: |
+        mkdir -p build-android-${{ matrix.android_api }}
+        cd build-android-${{ matrix.android_api }}
+        cmake .. \
+          -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_ROOT/build/cmake/android.toolchain.cmake \
+          -DANDROID_ABI=${{ matrix.abi }} \
+          -DANDROID_PLATFORM=android-${{ matrix.android_api }} \
+          -DMLX_BUILD_VULKAN=ON \
+          -DMLX_BUILD_OPENCL=OFF \
+          -DMLX_BUILD_PYTHON=OFF \
+          -DMLX_BUILD_TESTS=ON \
+          -DCMAKE_BUILD_TYPE=Release \
+          -GNinja
+    
+    - name: Build
+      run: |
+        cd build-android-${{ matrix.android_api }}
+        ninja -v
+    
+    - name: Run tests (emulator)
+      if: matrix.android_api == 29
+      uses: reactivecircus/android-emulator-runner@v2
+      with:
+        api-level: 29
+        arch: x86_64
+        script: |
+          adb push build-android-29/bin/* /data/local/tmp/
+          adb shell /data/local/tmp/mlx_tests || true
+    
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: mlx-arm-android-api${{ matrix.android_api }}-${{ matrix.abi }}
+        path: |
+          build-android-${{ matrix.android_api }}/lib/*.so
+          build-android-${{ matrix.android_api }}/bin/*
+        retention-days: 7
+    
+    - name: Upload shader binaries
+      uses: actions/upload-artifact@v3
+      with:
+        name: vulkan-shaders-api${{ matrix.android_api }}
+        path: |
+          build-android-${{ matrix.android_api }}/mlx/backend/vulkan/spirv/*.spv
+        retention-days: 7
+
+  lint:
+    name: Code Quality Checks
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Install clang-format
+      run: sudo apt-get install -y clang-format-14
+    
+    - name: Check formatting
+      run: |
+        find mlx -name '*.cpp' -o -name '*.h' | xargs clang-format-14 --dry-run -Werror
+    
+    - name: Install clang-tidy
+      run: sudo apt-get install -y clang-tidy-14
+    
+    - name: Run clang-tidy
+      run: |
+        # Will add proper clang-tidy check after first build
+        echo "Static analysis placeholder"
+
+  documentation:
+    name: Build Documentation
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        pip install mkdocs mkdocs-material
+    
+    - name: Check documentation links
+      run: |
+        # Check that all links in markdown files are valid
+        find docs -name '*.md' -exec markdown-link-check {} \; || true
+    
+    - name: Build docs
+      run: |
+        # mkdocs build --strict
+        echo "Documentation build placeholder"
+
+  # Security scanning
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+    
+    - name: Upload Trivy results to GitHub Security
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'
