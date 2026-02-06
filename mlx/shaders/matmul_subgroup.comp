@@ -1,0 +1,45 @@
+#version 450
+#extension GL_KHR_shader_subgroup_basic : enable
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+
+// Adreno 740: subgroup size = 64 threads
+// Strategy: Each workgroup computes ONE output element
+//           64 threads cooperate to compute the dot product
+layout(local_size_x = 64) in;
+
+layout(binding = 0) readonly buffer MatrixA { float A[]; };
+layout(binding = 1) readonly buffer MatrixB { float B[]; };
+layout(binding = 2) writeonly buffer MatrixC { float C[]; };
+
+layout(push_constant) uniform Dims {
+    uint M, N, K;
+} dims;
+
+void main() {
+    // Each workgroup processes ONE output element C[row][col]
+    uint workgroup_id = gl_WorkGroupID.x;
+    uint row = workgroup_id / dims.N;
+    uint col = workgroup_id % dims.N;
+    
+    if (row >= dims.M || col >= dims.N) return;
+    
+    // Distribute K-dimension across 64 threads in this workgroup
+    float partial_sum = 0.0;
+    
+    // Each thread компутит часть dot product
+    uint thread_id = gl_SubgroupInvocationID;
+    uint subgroup_size = gl_SubgroupSize;
+    
+    // Strided access: thread 0 does k=0,64,128..., thread 1 does k=1,65,129...
+    for (uint k = thread_id; k < dims.K; k += subgroup_size) {
+        partial_sum += A[row * dims.K + k] * B[k * dims.N + col];
+    }
+    
+    // Warp-level reduction (БЕЗ shared memory!)
+    float total = subgroupAdd(partial_sum);
+    
+    // Only first thread writes result
+    if (thread_id == 0) {
+        C[row * dims.N + col] = total;
+    }
+}

@@ -1,0 +1,42 @@
+#version 450
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+// ВАЖНО: layout как vec4 для coalesced memory access (128-bit loads)
+layout(binding = 0) readonly buffer MatrixA { 
+    vec4 A[]; 
+};
+layout(binding = 1) readonly buffer MatrixB { 
+    vec4 B[]; 
+};
+layout(binding = 2) writeonly buffer MatrixC { 
+    float C[]; 
+};
+
+layout(push_constant) uniform Dims {
+    uint M;      // rows of A
+    uint N;      // cols of B
+    uint K;      // cols of A / rows of B
+    uint K_vec4; // K / 4 (pre-computed)
+} dims;
+
+void main() {
+    uint row = gl_GlobalInvocationID.y;
+    uint col = gl_GlobalInvocationID.x;
+    
+    if (row >= dims.M || col >= dims.N) return;
+    
+    float sum = 0.0;
+    
+    // Векторизованный inner loop - 4x меньше итераций!
+    for (uint k = 0; k < dims.K_vec4; k++) {
+        // Загружаем 4 элемента за раз (128 бит) - coalesced access!
+        vec4 a_vec = A[row * dims.K_vec4 + k];
+        vec4 b_vec = B[col * dims.K_vec4 + k]; // B транспонирована!
+        
+        // dot(vec4, vec4) = hardware FMA instruction на GPU!
+        sum += dot(a_vec, b_vec);
+    }
+    
+    C[row * dims.N + col] = sum;
+}

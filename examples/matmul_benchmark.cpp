@@ -20,6 +20,52 @@
 #include <cmath>
 #include <chrono>
 #include <iomanip>
+#include <cstdint>
+#include <cstring>
+
+// FP16 conversion helpers (IEEE 754 half-precision)
+inline uint16_t float_to_fp16(float f) {
+    uint32_t u;
+    std::memcpy(&u, &f, sizeof(f));
+    
+    uint32_t sign = (u >> 31) & 0x1;
+    uint32_t exp = (u >> 23) & 0xFF;
+    uint32_t mant = u & 0x7FFFFF;
+    
+    // Handle special cases
+    if (exp == 255) { // Inf or NaN
+        return (sign << 15) | 0x7C00 | (mant ? 0x200 : 0);
+    }
+    
+    int32_t new_exp = exp - 127 + 15;
+    if (new_exp <= 0) { // Underflow → zero
+        return sign << 15;
+    }
+    if (new_exp >= 31) { // Overflow → inf
+        return (sign << 15) | 0x7C00;
+    }
+    
+    return (sign << 15) | (new_exp << 10) | (mant >> 13);
+}
+
+inline float fp16_to_float(uint16_t h) {
+    uint32_t sign = (h >> 15) & 0x1;
+    uint32_t exp = (h >> 10) & 0x1F;
+    uint32_t mant = h & 0x3FF;
+    
+    uint32_t f;
+    if (exp == 0) { // Zero or denormal
+        f = (sign << 31);
+    } else if (exp == 31) { // Inf or NaN
+        f = (sign << 31) | 0x7F800000 | (mant << 13);
+    } else {
+        f = (sign << 31) | ((exp - 15 + 127) << 23) | (mant << 13);
+    }
+    
+    float result;
+    std::memcpy(&result, &f, sizeof(f));
+    return result;
+}
 
 #ifdef MLX_BUILD_VULKAN
 using namespace mlx::backend::vulkan;
@@ -64,6 +110,15 @@ void matmul_cpu(const float* A, const float* B, float* C, uint32_t M, uint32_t K
                 sum += A[i * K + k] * B[k * N + j];
             }
             C[i * N + j] = sum;
+        }
+    }
+}
+
+// Transpose B для векторизованного доступа: B[K×N] → B_T[N×K]
+void transpose_for_vectorized(const float* B, float* B_T, uint32_t K, uint32_t N) {
+    for (uint32_t n = 0; n < N; n++) {
+        for (uint32_t k = 0; k < K; k++) {
+            B_T[n * K + k] = B[k * N + n];
         }
     }
 }
@@ -127,6 +182,208 @@ bool matmul_gpu(const float* A, const float* B, float* C,
         return false;
     }
 }
+
+bool matmul_gpu_fp16(const float* A, const float* B, float* C, 
+                     uint32_t M, uint32_t K, uint32_t N) {
+    try {
+        if (!g_vulkan_initialized && !init_vulkan()) {
+            return false;
+        }
+        
+        // Convert to FP16
+        std::vector<uint16_t> A_fp16(M * K);
+        std::vector<uint16_t> B_fp16(K * N);
+        std::vector<uint16_t> C_fp16(M * N);
+        
+        for (size_t i = 0; i < M * K; i++) A_fp16[i] = float_to_fp16(A[i]);
+        for (size_t i = 0; i < K * N; i++) B_fp16[i] = float_to_fp16(B[i]);
+        
+        size_t sizeA = M * K * sizeof(uint16_t);
+        size_t sizeB = K * N * sizeof(uint16_t);
+        size_t sizeC = M * N * sizeof(uint16_t);
+        
+        // Create buffers
+        VulkanBuffer bufferA(*g_device, sizeA, VulkanBuffer::Type::Staging);
+        VulkanBuffer bufferB(*g_device, sizeB, VulkanBuffer::Type::Staging);
+        VulkanBuffer bufferC(*g_device, sizeC, VulkanBuffer::Type::Staging);
+        
+        // Upload data
+        bufferA.write(A_fp16.data(), 0, sizeA);
+        bufferB.write(B_fp16.data(), 0, sizeB);
+        
+        // Load FP16 pipeline
+        VulkanPipeline pipeline(*g_device, "shaders/matmul_fp16.spv", 3 * sizeof(uint32_t));
+        
+        // Create descriptor set
+        VkDescriptorSet descSet = pipeline.createDescriptorSet();
+        VkBuffer buffers[] = {bufferA.buffer(), bufferB.buffer(), bufferC.buffer()};
+        pipeline.updateDescriptorSet(descSet, buffers, 3);
+        
+        // Record commands
+        VulkanCommandBuffer cmd(*g_device);
+        cmd.begin();
+        cmd.bindPipeline(pipeline);
+        cmd.bindDescriptorSets(pipeline, descSet);
+        
+        // Push constants: M, K, N
+        uint32_t dims[3] = {M, K, N};
+        cmd.pushConstants(pipeline, dims, sizeof(dims));
+        
+        // Dispatch
+        uint32_t wgX = (N + 15) / 16;
+        uint32_t wgY = (M + 15) / 16;
+        cmd.dispatch(wgX, wgY, 1);
+        
+        cmd.memoryBarrier();
+        cmd.end();
+        cmd.submit();
+        
+        // Read results
+        bufferC.read(C_fp16.data(), 0, sizeC);
+        
+        // Convert back to FP32
+        for (size_t i = 0; i < M * N; i++) {
+            C[i] = fp16_to_float(C_fp16[i]);
+        }
+        
+        return true;
+    } catch (const std::exception& e) {
+        std::cerr << "GPU FP16 error: " << e.what() << std::endl;
+        return false;
+    }
+}
+
+bool matmul_gpu_vectorized(const float* A, const float* B, float* C,
+                           uint32_t M, uint32_t K, uint32_t N) {
+    try {
+        if (!g_vulkan_initialized && !init_vulkan()) {
+            return false;
+        }
+        
+        // Transpose B для оптимального GPU access
+        std::vector<float> B_T(N * K);
+        transpose_for_vectorized(B, B_T.data(), K, N);
+        
+        // Padding до vec4 alignment
+        uint32_t K_vec4 = (K + 3) / 4;
+        uint32_t K_padded = K_vec4 * 4;
+        
+        std::vector<float> A_padded(M * K_padded, 0.0f);
+        std::vector<float> B_T_padded(N * K_padded, 0.0f);
+        
+        // Copy с паддингом
+        for (uint32_t i = 0; i < M; i++) {
+            std::memcpy(&A_padded[i * K_padded], &A[i * K], K * sizeof(float));
+        }
+        for (uint32_t i = 0; i < N; i++) {
+            std::memcpy(&B_T_padded[i * K_padded], &B_T[i * K], K * sizeof(float));
+        }
+        
+        // Create buffers (vec4 layout)
+        size_t sizeA = M * K_padded * sizeof(float);
+        size_t sizeB = N * K_padded * sizeof(float);
+        size_t sizeC = M * N * sizeof(float);
+        
+        VulkanBuffer bufferA(*g_device, sizeA, VulkanBuffer::Type::Staging);
+        VulkanBuffer bufferB(*g_device, sizeB, VulkanBuffer::Type::Staging);
+        VulkanBuffer bufferC(*g_device, sizeC, VulkanBuffer::Type::Staging);
+        
+        // Upload padded data
+        bufferA.write(A_padded.data(), 0, sizeA);
+        bufferB.write(B_T_padded.data(), 0, sizeB);
+        
+        // Load vectorized pipeline (4 push constants: M, N, K, K_vec4)
+        VulkanPipeline pipeline(*g_device, "shaders/matmul_vectorized.spv", 4 * sizeof(uint32_t));
+        
+        // Create descriptor set
+        VkDescriptorSet descSet = pipeline.createDescriptorSet();
+        VkBuffer buffers[] = {bufferA.buffer(), bufferB.buffer(), bufferC.buffer()};
+        pipeline.updateDescriptorSet(descSet, buffers, 3);
+        
+        // Record commands
+        VulkanCommandBuffer cmd(*g_device);
+        cmd.begin();
+        cmd.bindPipeline(pipeline);
+        cmd.bindDescriptorSets(pipeline, descSet);
+        
+        // Push constants: M, N, K, K_vec4
+        uint32_t dims[4] = {M, N, K, K_vec4};
+        cmd.pushConstants(pipeline, dims, sizeof(dims));
+        
+        // Dispatch
+        uint32_t wgX = (N + 15) / 16;
+        uint32_t wgY = (M + 15) / 16;
+        cmd.dispatch(wgX, wgY, 1);
+        
+        cmd.memoryBarrier();
+        cmd.end();
+        cmd.submit();
+        
+        // Read results
+        bufferC.read(C, 0, sizeC);
+        
+        return true;
+    } catch (const std::exception& e) {
+        std::cerr << "GPU Vectorized error: " << e.what() << std::endl;
+        return false;
+    }
+}
+
+bool matmul_gpu_subgroup(const float* A, const float* B, float* C,
+                         uint32_t M, uint32_t K, uint32_t N) {
+    try {
+        if (!g_vulkan_initialized && !init_vulkan()) {
+            return false;
+        }
+        
+        size_t sizeA = M * K * sizeof(float);
+        size_t sizeB = K * N * sizeof(float);
+        size_t sizeC = M * N * sizeof(float);
+        
+        // Create buffers
+        VulkanBuffer bufferA(*g_device, sizeA, VulkanBuffer::Type::Staging);
+        VulkanBuffer bufferB(*g_device, sizeB, VulkanBuffer::Type::Staging);
+        VulkanBuffer bufferC(*g_device, sizeC, VulkanBuffer::Type::Staging);
+        
+        // Upload data
+        bufferA.write(A, 0, sizeA);
+        bufferB.write(B, 0, sizeB);
+        
+        // Load subgroup pipeline
+        VulkanPipeline pipeline(*g_device, "shaders/matmul_subgroup.spv", 3 * sizeof(uint32_t));
+        
+        // Create descriptor set
+        VkDescriptorSet descSet = pipeline.createDescriptorSet();
+        VkBuffer buffers[] = {bufferA.buffer(), bufferB.buffer(), bufferC.buffer()};
+        pipeline.updateDescriptorSet(descSet, buffers, 3);
+        
+        // Record commands
+        VulkanCommandBuffer cmd(*g_device);
+        cmd.begin();
+        cmd.bindPipeline(pipeline);
+        cmd.bindDescriptorSets(pipeline, descSet);
+        
+        // Push constants: M, K, N
+        uint32_t dims[3] = {M, K, N};
+        cmd.pushConstants(pipeline, dims, sizeof(dims));
+        
+        // Dispatch: M*N workgroups (each workgroup = 1 output element with 64 threads)
+        uint32_t num_workgroups = M * N;
+        cmd.dispatch(num_workgroups, 1, 1);
+        
+        cmd.memoryBarrier();
+        cmd.end();
+        cmd.submit();
+        
+        // Read results
+        bufferC.read(C, 0, sizeC);
+        
+        return true;
+    } catch (const std::exception& e) {
+        std::cerr << "GPU Subgroup error: " << e.what() << std::endl;
+        return false;
+    }
+}
 #endif
 
 void run_matmul_benchmark(uint32_t M, uint32_t K, uint32_t N) {
@@ -141,7 +398,7 @@ void run_matmul_benchmark(uint32_t M, uint32_t K, uint32_t N) {
     std::vector<float> B(K * N);
     std::vector<float> C_cpu(M * N);
     std::vector<float> C_gpu_naive(M * N);
-    std::vector<float> C_gpu_tiled(M * N);
+    std::vector<float> C_gpu_subgroup(M * N);
     
     // Initialize with random values
     for (size_t i = 0; i < A.size(); i++) A[i] = (rand() % 100) / 10.0f;
@@ -149,19 +406,19 @@ void run_matmul_benchmark(uint32_t M, uint32_t K, uint32_t N) {
     
 #ifdef MLX_BUILD_VULKAN
     // Warmup GPU
-    matmul_gpu(A.data(), B.data(), C_gpu_tiled.data(), M, K, N, true);
+    matmul_gpu_subgroup(A.data(), B.data(), C_gpu_subgroup.data(), M, K, N);
     
-    // GPU Naive benchmark
+    // GPU Naive FP32 benchmark
     auto gpu_naive_start = std::chrono::high_resolution_clock::now();
     bool gpu_naive_ok = matmul_gpu(A.data(), B.data(), C_gpu_naive.data(), M, K, N, false);
     auto gpu_naive_end = std::chrono::high_resolution_clock::now();
     auto gpu_naive_us = std::chrono::duration_cast<std::chrono::microseconds>(gpu_naive_end - gpu_naive_start).count();
     
-    // GPU Tiled benchmark
-    auto gpu_tiled_start = std::chrono::high_resolution_clock::now();
-    bool gpu_tiled_ok = matmul_gpu(A.data(), B.data(), C_gpu_tiled.data(), M, K, N, true);
-    auto gpu_tiled_end = std::chrono::high_resolution_clock::now();
-    auto gpu_tiled_us = std::chrono::duration_cast<std::chrono::microseconds>(gpu_tiled_end - gpu_tiled_start).count();
+    // GPU Subgroup benchmark
+    auto gpu_sub_start = std::chrono::high_resolution_clock::now();
+    bool gpu_sub_ok = matmul_gpu_subgroup(A.data(), B.data(), C_gpu_subgroup.data(), M, K, N);
+    auto gpu_sub_end = std::chrono::high_resolution_clock::now();
+    auto gpu_sub_us = std::chrono::duration_cast<std::chrono::microseconds>(gpu_sub_end - gpu_sub_start).count();
 #endif
     
     // CPU benchmark
@@ -179,27 +436,31 @@ void run_matmul_benchmark(uint32_t M, uint32_t K, uint32_t N) {
     
 #ifdef MLX_BUILD_VULKAN
     if (gpu_naive_ok) {
-        std::cout << "  GPU Naive (Adreno):   " << std::setw(8) << gpu_naive_us << " µs  →  " 
+        std::cout << "  GPU FP32 Naive:       " << std::setw(8) << gpu_naive_us << " µs  →  " 
                   << std::fixed << std::setprecision(2) << (total_flops / gpu_naive_us / 1000.0) << " GFLOPS" << std::endl;
     }
-    if (gpu_tiled_ok) {
-        std::cout << "  GPU Tiled (Adreno):   " << std::setw(8) << gpu_tiled_us << " µs  →  " 
-                  << std::fixed << std::setprecision(2) << (total_flops / gpu_tiled_us / 1000.0) << " GFLOPS" << std::endl;
+    if (gpu_sub_ok) {
+        std::cout << "  GPU Subgroup:         " << std::setw(8) << gpu_sub_us << " µs  →  " 
+                  << std::fixed << std::setprecision(2) << (total_flops / gpu_sub_us / 1000.0) << " GFLOPS 🔥" << std::endl;
         
-        double speedup_cpu = static_cast<double>(cpu_us) / gpu_tiled_us;
-        std::cout << "\n🚀 GPU Speedup over CPU: " << std::fixed << std::setprecision(2) << speedup_cpu << "x ";
-        if (speedup_cpu > 1.0) {
-            std::cout << "FASTER ✅✅✅" << std::endl;
+        double speedup_cpu = static_cast<double>(cpu_us) / gpu_sub_us;
+        double speedup_naive = static_cast<double>(gpu_naive_us) / gpu_sub_us;
+        std::cout << "\n🚀 Subgroup Speedup vs CPU:   " << std::fixed << std::setprecision(2) << speedup_cpu << "x";
+        std::cout << "\n🚀 Subgroup Speedup vs Naive: " << std::fixed << std::setprecision(2) << speedup_naive << "x";
+        if (speedup_naive > 1.2) {
+            std::cout << " ✅✅✅" << std::endl;
+        } else if (speedup_naive > 1.0) {
+            std::cout << " ✅" << std::endl;
         } else {
-            std::cout << "(CPU still wins)" << std::endl;
+            std::cout << std::endl;
         }
     }
     
     // Verify correctness
-    if (gpu_tiled_ok) {
+    if (gpu_sub_ok) {
         float max_error = 0.0f;
         for (size_t i = 0; i < C_cpu.size(); i++) {
-            float error = std::abs(C_cpu[i] - C_gpu_tiled[i]);
+            float error = std::abs(C_cpu[i] - C_gpu_subgroup[i]);
             max_error = std::max(max_error, error);
         }
         std::cout << "\n✅ Accuracy: Max error = " << std::scientific << max_error;

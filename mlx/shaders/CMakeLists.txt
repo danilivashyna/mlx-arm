@@ -28,6 +28,9 @@ set(COMPUTE_SHADERS
     vector_add.comp
     matmul_naive.comp
     matmul_tiled.comp
+    matmul_fp16.comp
+    matmul_vectorized.comp
+    matmul_subgroup.comp
 )
 
 # Compile each shader
