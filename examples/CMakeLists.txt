@@ -109,7 +109,16 @@ if(MLX_BUILD_VULKAN)
     target_compile_definitions(attention_test PRIVATE MLX_BUILD_VULKAN)
 endif()
 
+# LLaMA inference test
+add_executable(llama_inference
+    llama_inference.cpp
+)
+
+target_link_libraries(llama_inference PRIVATE
+    mlx-core
+)
+
 # Install examples
-install(TARGETS vector_add_example matmul_benchmark rmsnorm_benchmark silu_benchmark elemwise_multiply_benchmark rope_benchmark softmax_benchmark attention_test
+install(TARGETS vector_add_example matmul_benchmark rmsnorm_benchmark silu_benchmark elemwise_multiply_benchmark rope_benchmark softmax_benchmark attention_test llama_inference
     RUNTIME DESTINATION bin/examples
 )
