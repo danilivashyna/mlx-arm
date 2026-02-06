@@ -67,7 +67,21 @@ if(MLX_BUILD_VULKAN)
     target_compile_definitions(elemwise_multiply_benchmark PRIVATE MLX_BUILD_VULKAN)
 endif()
 
+# RoPE benchmark
+add_executable(rope_benchmark
+    rope_benchmark.cpp
+)
+
+target_link_libraries(rope_benchmark PRIVATE
+    mlx-core
+)
+
+if(MLX_BUILD_VULKAN)
+    target_link_libraries(rope_benchmark PRIVATE mlx-backend-vulkan)
+    target_compile_definitions(rope_benchmark PRIVATE MLX_BUILD_VULKAN)
+endif()
+
 # Install examples
-install(TARGETS vector_add_example matmul_benchmark rmsnorm_benchmark silu_benchmark elemwise_multiply_benchmark
+install(TARGETS vector_add_example matmul_benchmark rmsnorm_benchmark silu_benchmark elemwise_multiply_benchmark rope_benchmark
     RUNTIME DESTINATION bin/examples
 )

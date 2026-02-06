@@ -35,6 +35,7 @@ set(COMPUTE_SHADERS
     rms_norm.comp
     silu.comp
     elemwise_multiply.comp
+    rope.comp
 )
 
 # Compile each shader

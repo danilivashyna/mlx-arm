@@ -1,0 +1,77 @@
+// RoPE (Rotary Position Embeddings)
+// Used in LLaMA/Mistral/Gemma for positional encoding in Attention
+//
+// Formula: Rotate pairs of elements (x[2i], x[2i+1]) by position-dependent angle
+//   x'[2i]   = x[2i] * cos(θ) - x[2i+1] * sin(θ)
+//   x'[2i+1] = x[2i] * sin(θ) + x[2i+1] * cos(θ)
+//   where θ = pos * θ_base^(-2i/head_dim)
+//
+// Input/Output: [batch × seq_len × num_heads × head_dim]
+// Applies in-place rotation to Q and K matrices before attention
+
+#version 450
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : enable
+#extension GL_EXT_shader_16bit_storage : enable
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(binding = 0) readonly buffer Input { 
+    float16_t input_data[]; 
+};
+
+layout(binding = 1) writeonly buffer Output { 
+    float16_t output_data[]; 
+};
+
+layout(push_constant) uniform Dims {
+    uint batch_size;
+    uint seq_len;
+    uint num_heads;
+    uint head_dim;      // Must be even (we rotate pairs)
+    float theta_base;   // Usually 10000.0 for LLaMA
+} dims;
+
+void main() {
+    // Thread indices
+    uint pos = gl_GlobalInvocationID.x;  // Position in sequence (0..seq_len-1)
+    uint head_idx = gl_GlobalInvocationID.y;  // Head index (0..num_heads-1)
+    
+    if (pos >= dims.seq_len || head_idx >= dims.num_heads) {
+        return;
+    }
+    
+    // Process all batches for this position and head
+    for (uint batch = 0; batch < dims.batch_size; batch++) {
+        // Base offset for this batch/pos/head
+        uint base_offset = ((batch * dims.seq_len + pos) * dims.num_heads + head_idx) * dims.head_dim;
+        
+        // Apply rotation to pairs of elements
+        for (uint i = 0; i < dims.head_dim; i += 2) {
+            uint offset = base_offset + i;
+            
+            // Load pair
+            float x0 = float(input_data[offset]);
+            float x1 = float(input_data[offset + 1]);
+            
+            // Compute rotation angle θ
+            // θ = pos * θ_base^(-2i/head_dim)
+            float exponent = -float(i) / float(dims.head_dim);
+            float freq = pow(dims.theta_base, exponent);
+            float theta = float(pos) * freq;
+            
+            // Compute cos and sin
+            float cos_theta = cos(theta);
+            float sin_theta = sin(theta);
+            
+            // Apply rotation matrix
+            // [cos  -sin] [x0]
+            // [sin   cos] [x1]
+            float x0_new = x0 * cos_theta - x1 * sin_theta;
+            float x1_new = x0 * sin_theta + x1 * cos_theta;
+            
+            // Store rotated pair
+            output_data[offset] = float16_t(x0_new);
+            output_data[offset + 1] = float16_t(x1_new);
+        }
+    }
+}
