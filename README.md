@@ -3,8 +3,23 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Platform](https://img.shields.io/badge/Platform-Android%20%7C%20Linux%20%7C%20ARM-blue)]()
 [![GPU](https://img.shields.io/badge/GPU-Vulkan%20%7C%20OpenCL-green)]()
+[![Version](https://img.shields.io/badge/Version-0.1.0--alpha-orange)]()
 
 > Bringing MLX to Android, ARM Linux, and beyond - with a path to Steam/Proton gaming ecosystem
+
+**🤝 Developed in collaboration:** This project is a human-AI collaboration between [@jbarton43](https://github.com/jbarton43) and **GitHub Copilot / Claude AI**. All architecture decisions, code implementation, and testing were done through iterative pair programming between human creativity and AI assistance.
+
+## 🎉 v0.1.0-alpha Released!
+
+**✅ First working release verified on Samsung Galaxy Fold 5!**
+
+- ✅ Cross-compilation working (macOS → Android ARM64)
+- ✅ CPU backend with NEON/SVE2 optimizations
+- ✅ Binary runs on real device (Snapdragon 8 Gen 2)
+- ✅ Vector addition verified (100% accurate)
+- ⚠️ GPU acceleration coming in v0.2.0
+
+See [FIRST_RUN.md](FIRST_RUN.md) for detailed test results.
 
 ## 🎯 Vision
 
@@ -17,22 +32,28 @@ MLX-ARM is a full-featured port of Apple's [MLX framework](https://github.com/ml
 
 ## 🚀 Current Status
 
-**⚠️ Early Development (Pre-Alpha)**
+**🎉 v0.1.0-alpha - First Working Release!**
 
-We are currently in the architecture and proof-of-concept phase. See [docs/technical_specification.md](docs/technical_specification.md) for the complete technical roadmap.
+Successfully tested on **Samsung Galaxy Fold 5** (Snapdragon 8 Gen 2, Android 16)
 
-### Milestone Progress
+### What Works Now ✅
 
-- [x] Technical specification completed
-- [ ] **M1: Android Infrastructure** (In Progress)
-  - [ ] CMake build system for Android NDK
-  - [ ] Device abstraction layer
-  - [ ] Basic CPU backend (NEON)
-  - [ ] Vulkan context management
-- [ ] M2: Vulkan GPU Backend
-- [ ] M3: LLM Support
-- [ ] M4: Optimization
-- [ ] M5: Public Release v0.1.0
+- ✅ **Cross-compilation**: macOS → Android ARM64
+- ✅ **CPU Backend**: NEON + SVE2 optimizations enabled
+- ✅ **Device Abstraction**: CPU/GPU/NPU types
+- ✅ **Memory Management**: Android unified memory support
+- ✅ **Build System**: CMake + Android NDK r27
+- ✅ **Real Device Testing**: Binary runs on Galaxy Fold 5
+- ✅ **Computation Verified**: Vector addition 100% accurate
+
+### Coming in v0.2.0 🚧
+
+- ⏳ **Vulkan GPU Pipeline**: Full compute shader implementation
+- ⏳ **GPU Acceleration**: Leverage Adreno 740 on Snapdragon 8 Gen 2
+- ⏳ **Performance Benchmarks**: CPU vs GPU comparisons
+- ⏳ **Matrix Operations**: GEMM kernels for ML workloads
+
+See [CHANGELOG.md](CHANGELOG.md) for detailed version history.
 
 ## 🏗️ Architecture
 
@@ -180,7 +201,29 @@ We're actively seeking contributors! Especially valuable:
 
 *Targets are preliminary estimates*
 
-## 📜 License
+## � Contributors
+
+This project is a **human-AI collaboration**:
+
+- **[@jbarton43](https://github.com/jbarton43)** - Project lead, architecture decisions, device testing, strategic direction
+- **AI Assistants (GitHub Copilot / Claude)** - Code implementation, documentation, technical research, pair programming
+
+### Collaboration Model
+
+MLX-ARM demonstrates modern AI-assisted software development:
+- 🧠 **Human**: Vision, requirements, testing, quality control
+- 🤖 **AI**: Implementation, documentation, optimization suggestions
+- 🤝 **Together**: Iterative refinement, problem-solving, rapid prototyping
+
+All code was written through human-AI pair programming sessions, with every architectural decision reviewed and approved by the human lead.
+
+### Acknowledgments
+
+- Apple's [MLX team](https://github.com/ml-explore/mlx) for the original framework
+- Vulkan and OpenCL communities for cross-platform GPU computing
+- Android development community for tools and guidance
+
+## �📜 License
 
 MIT License - same as upstream MLX
 
