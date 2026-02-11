@@ -1,0 +1,34 @@
+# Build directories
+build/
+build-android/
+build-native/
+build-shaders/
+build-fold5/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+*.o
+*.a
+*.so
+*.spv
+
+# Model Weights (Too large for Git)
+*.safetensors
+*.bin
+*.pt
+SmolLM-135M/
+mock_tinyllama.safetensors
+tinyllama_real.safetensors
+
+# Environment & Temp
+.gemini/
+.DS_Store
+*.log
+tmp/
+.vscode/
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class

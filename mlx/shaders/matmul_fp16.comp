@@ -1,0 +1,31 @@
+#version 450
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : enable
+#extension GL_EXT_shader_16bit_storage : enable
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(binding = 0) readonly buffer MatrixA { float16_t A[]; };
+layout(binding = 1) readonly buffer MatrixB { float16_t B[]; };
+layout(binding = 2) writeonly buffer MatrixC { float16_t C[]; };
+
+layout(push_constant) uniform Dims {
+    uint M, N, K;
+} dims;
+
+void main() {
+    uint row = gl_GlobalInvocationID.y;
+    uint col = gl_GlobalInvocationID.x;
+    
+    if (row >= dims.M || col >= dims.N) return;
+    
+    // КРИТИЧНО: Mixed-precision - FP32 accumulator для точності!
+    float sum = 0.0;
+    for (uint k = 0; k < dims.K; k++) {
+        float16_t a = A[row * dims.K + k];
+        float16_t b = B[k * dims.N + col];
+        // Множимо у FP16, накопичуємо у FP32
+        sum += float(a) * float(b);
+    }
+    
+    C[row * dims.N + col] = float16_t(sum);
+}

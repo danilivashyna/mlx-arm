@@ -1,0 +1,61 @@
+// SiLU (Swish) Activation Function
+// Used in LLaMA/Mistral/Gemma FFN (feed-forward network)
+//
+// Formula: SiLU(x) = x * sigmoid(x)
+//          where sigmoid(x) = 1 / (1 + exp(-x))
+//
+// Properties:
+// - Smooth, non-monotonic activation
+// - Self-gated (uses input to gate itself)
+// - Better gradient flow than ReLU for deep networks
+//
+// Usage in LLaMA FFN:
+//   hidden = silu(gate_proj(x)) * up_proj(x)
+
+#version 450
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : enable
+#extension GL_EXT_shader_16bit_storage : enable
+
+layout(local_size_x = 256) in;
+
+layout(binding = 0) readonly buffer Input { 
+    float16_t input_data[]; 
+};
+
+layout(binding = 1) writeonly buffer Output { 
+    float16_t output_data[]; 
+};
+
+layout(push_constant) uniform Dims {
+    uint num_elements;
+} dims;
+
+// Fast sigmoid approximation for FP16
+// Using built-in exp() which is optimized on mobile GPUs
+float fast_sigmoid(float x) {
+    // Clamp for numerical stability
+    // exp(-10) ≈ 4.5e-5 (close to 0)
+    // exp(10) ≈ 22026 (close to infinity)
+    x = clamp(x, -10.0, 10.0);
+    
+    // Sigmoid: 1 / (1 + exp(-x))
+    return 1.0 / (1.0 + exp(-x));
+}
+
+void main() {
+    uint idx = gl_GlobalInvocationID.x;
+    
+    if (idx >= dims.num_elements) {
+        return;
+    }
+    
+    // Load input (FP16 → FP32 for computation)
+    float x = float(input_data[idx]);
+    
+    // SiLU: x * sigmoid(x)
+    float sigmoid_x = fast_sigmoid(x);
+    float result = x * sigmoid_x;
+    
+    // Store output (FP32 → FP16)
+    output_data[idx] = float16_t(result);
+}
