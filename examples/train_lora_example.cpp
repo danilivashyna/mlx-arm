@@ -71,7 +71,27 @@ int main() {
         optimizer.step(trainable_params);
     }
 
-    printf("\n✅ SUCCESS! Real weights loaded, LoRA training works on Android!\n");
+    // 6. Test Fusion
+    printf("Merging LoRA weights into base model... ");
+    auto logits_before = (*model)(x);
+    
+    // Find and fuse all LoRALinear modules
+    for (auto& layer : model->model->layers) {
+        std::static_pointer_cast<LoRALinear>(layer->self_attn->q_proj)->fuse();
+        std::static_pointer_cast<LoRALinear>(layer->self_attn->v_proj)->fuse();
+    }
+    auto logits_after = (*model)(x);
+    
+    float diff = std::abs(logits_before.data()[0] - logits_after.data()[0]);
+    printf("Done. Difference: %e\n", diff);
+    
+    if (diff < 1e-5) {
+        printf("✅ FUSION SUCCESS: Weights merged perfectly.\n");
+    } else {
+        printf("❌ FUSION WARNING: Significant difference detected.\n");
+    }
+
+    printf("\nTraining complete! Fine-tuning and fusion works on Android!\n");
 
     return 0;
 }

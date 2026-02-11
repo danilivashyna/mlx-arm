@@ -72,6 +72,8 @@ public:
         // Standard linear output
         auto out = Linear::operator()(x);
 
+        if (fused_) return out;
+
         // LoRA path: (x @ A.T) @ B.T * scale
         auto lora_a = *(parameters_["lora_a"]);
         auto lora_b = *(parameters_["lora_b"]);
@@ -79,13 +81,39 @@ public:
         auto x_a = matmul(x, transpose(lora_a, {1, 0}));
         auto x_ab = matmul(x_a, transpose(lora_b, {1, 0}));
         
-        return add(out, multiply(x_ab, scale_));
+        auto res = add(out, multiply(x_ab, scale_));
+        return res;
     }
+
+    void fuse() {
+        auto lora_a = *(parameters_["lora_a"]);
+        auto lora_b = *(parameters_["lora_b"]);
+        auto weight = *(parameters_["weight"]);
+
+        // W_new = W + (B @ A) * scale
+        // Wait, our LoRA path was: (x @ A.T) @ B.T * scale
+        // Which is x @ (A.T @ B.T) * scale
+        // So the weight update is delta_W = (A.T @ B.T).T * scale = (B @ A) * scale
+        // A is [r, in], B is [out, r]. B @ A is [out, in].
+        
+        auto delta_w = multiply(matmul(lora_b, lora_a), scale_);
+        auto fused_w = add(weight, delta_w);
+        
+        // Update base weight and clear LoRA
+        register_parameter("weight", fused_w);
+        parameters_.erase("lora_a");
+        parameters_.erase("lora_b");
+        
+        fused_ = true;
+    }
+
+    bool is_fused() const { return fused_; }
 
 private:
     int r_;
     float alpha_;
     float scale_;
+    bool fused_ = false;
 };
 
 /**
