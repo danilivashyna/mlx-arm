@@ -37,6 +37,47 @@ public:
 };
 
 /**
+ * LoRA Linear Layer
+ */
+class LoRALinear : public Linear {
+public:
+    LoRALinear(int input_dims, int output_dims, int r = 8, float lora_alpha = 16.0f, bool bias = true)
+        : Linear(input_dims, output_dims, bias), r_(r), alpha_(lora_alpha) {
+        
+        float scale = lora_alpha / r;
+        scale_ = scale;
+
+        // LoRA matrices A and B
+        // A is [r, input_dims], B is [output_dims, r]
+        register_parameter("lora_a", Array({r, input_dims}));
+        register_parameter("lora_b", Array({output_dims, r}));
+        
+        // Initialize A with small random or Kaiming, B with zeros
+        // For now, zeros for B ensures LoRA is identity at start
+        std::memset(parameters_["lora_b"]->data(), 0, parameters_["lora_b"]->size() * sizeof(float));
+    }
+
+    Array operator()(const Array& x) override {
+        // Standard linear output
+        auto out = Linear::operator()(x);
+
+        // LoRA path: (x @ A.T) @ B.T * scale
+        auto lora_a = *(parameters_["lora_a"]);
+        auto lora_b = *(parameters_["lora_b"]);
+
+        auto x_a = matmul(x, transpose(lora_a, {1, 0}));
+        auto x_ab = matmul(x_a, transpose(lora_b, {1, 0}));
+        
+        return add(out, multiply(x_ab, scale_));
+    }
+
+private:
+    int r_;
+    float alpha_;
+    float scale_;
+};
+
+/**
  * RMSNorm Layer
  */
 class RMSNorm : public Module {
