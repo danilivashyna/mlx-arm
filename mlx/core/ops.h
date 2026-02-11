@@ -18,5 +18,8 @@ Array silu(const Array& a);
 Array rope(const Array& x, int dims, int offset, float theta, float scale = 1.0f);
 Array reshape(const Array& a, const std::vector<int>& shape);
 Array transpose(const Array& a, const std::vector<int>& axes);
+Array cross_entropy(const Array& logits, const Array& targets);
+Array concat(const std::vector<Array>& arrays, int axis = 0);
+Array slice(const Array& a, const std::vector<int>& start, const std::vector<int>& end);
 
 } // namespace mlx::core

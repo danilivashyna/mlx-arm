@@ -1,33 +1,33 @@
 # Gemini Context & Progress Log
 
-## 🧠 Project Status (Initial Analysis - Feb 10, 2026)
+## 🧠 Project Status (Updated - Feb 11, 2026)
 **Project:** MLX-ARM (Porting Apple MLX to Android/ARM with Vulkan)
-**Version:** v0.1.0-alpha
+**Version:** v0.2.0-beta (Autograd & Training Edition)
 
 ### ✅ Implemented Features
 1.  **Core Architecture:**
-    - Hybrid CPU (NEON/SVE2) + GPU (Vulkan) backend.
-    - `MLXMatmul`: Unified interface for matrix operations with CPU fallback.
-2.  **Inference Engine:**
-    - `llama_inference_real.cpp`: Manual C++ implementation of LLaMA architecture.
-    - Supports `.safetensors` weight loading (TinyLlama).
-    - **KV-Cache**: Implemented for efficient generation.
-3.  **GPU Acceleration (Vulkan):**
-    - Basic Vulkan Context & Device management.
-    - `matmul_q4_0` shader integration.
-    - *Identified Bottleneck:* On-the-fly quantization in `MLXMatmul` (CPU quantizes and uploads weights to GPU on *every* compute call).
-4.  **Build System:**
-    - CMake integration with Android NDK.
-    - Cross-compilation (macOS -> Android) verified.
+    - Eager C++ Autograd system with full backpropagation support.
+    - Memory-safe `Array` implementation using `std::vector` and `shared_ptr`.
+2.  **Inference & Training:**
+    - **KV-Cache**: Optimized inference.
+    - **LoRA Training**: Functional fine-tuning on Android.
+    - **Optimizers**: AdamW implementation.
+    - **Gradient Clipping**: Numerical stability for training.
+3.  **Data & Weights:**
+    - **Safetensors Loader**: High-performance parser for `.safetensors`.
+    - **Dtype Conversion**: On-the-fly conversion from F16/BF16 to F32.
+    - Verified loading of SmolLM-135M weights.
+4.  **Stability:**
+    - Eliminated memory corruption and NaN issues in the graph.
 
 ---
 
 ## 📝 Session Log
 
-### 2026-02-10
-- **[Init]** Conducted deep analysis of codebase structure, `MLXMatmul` logic, and `llama_inference_real.cpp`.
-- **[Docs]** Created `docs/GEMINI.md` to track context and progress.
-- **[Core]** Refactored `Array` class to support multi-dimensional shapes, strides, and dtypes (Phase 0).
-- **[NN]** Implemented `Module` base class and standard layers: `Linear`, `RMSNorm`, `Embedding`, `SiLU` (Phase 1).
-- **[NN]** Implemented full LLaMA architecture in `mlx/nn/llama.h`: `MLP`, `Attention` (with RoPE stub), `TransformerBlock`, `Model`.
-- **[Ops]** Implemented initial CPU-based tensor operations: `add`, `multiply`, `matmul`, `rms_norm`, `softmax`, `silu`.
+### 2026-02-11
+- **[Autograd]** Implemented `backward_op` for `silu`, `softmax`, `rms_norm`, `rope`, `concat`, and `slice`.
+- **[LoRA]** Refactored `Attention` to preserve the computation graph.
+- **[Memory]** Migrated `ArrayImpl` from raw memory to `std::vector<float>` to fix stability issues.
+- **[Data]** Created a minimalistic `.safetensors` parser in C++.
+- **[Training]** Successfully ran a training loop on real SmolLM weights in Termux.
+---

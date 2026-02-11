@@ -5,6 +5,7 @@ set(MLX_CORE_SOURCES
     ops.cpp
     graph.cpp
     utils.cpp
+    safetensors.cpp
 )
 
 set(MLX_CORE_HEADERS

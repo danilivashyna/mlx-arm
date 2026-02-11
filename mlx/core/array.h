@@ -9,90 +9,71 @@
 #include <numeric>
 #include <algorithm>
 #include <iostream>
+#include <functional>
+#include <cstring>
 
 #include "mlx/core/dtype.h"
 
 namespace mlx::core {
 
+class ArrayImpl;
+
 class Array {
 public:
-    // Constructors
-    Array() = default;
+    Array();
+    Array(const std::vector<float>& data, const std::vector<int>& shape);
+    Array(const std::vector<int>& shape, Dtype dtype = Dtype::Float32);
+    Array(std::shared_ptr<std::vector<float>> data, const std::vector<int>& shape, Dtype dtype);
+    Array(std::shared_ptr<ArrayImpl> impl) : impl_(impl) {}
+
+    const std::vector<int>& shape() const;
+    int ndim() const;
+    size_t size() const;
+    Dtype dtype() const;
     
-    // Create from existing data (copy)
-    Array(const std::vector<float>& data, const std::vector<int>& shape) 
-        : shape_(shape), dtype_(Dtype::Float32) {
-        compute_strides();
-        size_t size = data.size();
-        size_t expected = this->size();
-        if (size != expected) {
-            std::cerr << "Shape mismatch: expected " << expected << ", got " << size << std::endl;
-        }
-        // Allocate and copy
-        size_t nbytes = size * sizeof(float);
-        data_ = std::shared_ptr<void>(::operator new(nbytes), [](void* p) { ::operator delete(p); });
-        std::copy(data.begin(), data.end(), static_cast<float*>(data_.get()));
-    }
+    float* data();
+    const float* data() const;
+    std::shared_ptr<std::vector<float>> data_shared() const;
 
-    // Create empty with shape
-    Array(const std::vector<int>& shape, Dtype dtype = Dtype::Float32)
-        : shape_(shape), dtype_(dtype) {
-        compute_strides();
-        size_t nbytes = this->size() * size_of(dtype);
-        data_ = std::shared_ptr<void>(::operator new(nbytes), [](void* p) { ::operator delete(p); });
-    }
-
-    // Create from shared buffer (View/Reshape)
-    Array(std::shared_ptr<void> data, const std::vector<int>& shape, Dtype dtype)
-        : shape_(shape), dtype_(dtype), data_(data) {
-        compute_strides();
-    }
-
-    // Basic accessors
-    const std::vector<int>& shape() const { return shape_; }
-    int ndim() const { return shape_.size(); }
-    size_t size() const {
-        if (shape_.empty()) return 0;
-        return std::accumulate(shape_.begin(), shape_.end(), 1, std::multiplies<int>());
-    }
-    Dtype dtype() const { return dtype_; }
+    std::shared_ptr<Array> grad() const;
+    void set_grad(Array g);
     
-    // Raw pointer access
-    template<typename T = float>
-    T* data() { return static_cast<T*>(data_.get()); }
+    bool requires_grad() const;
+    void set_requires_grad(bool r);
     
-    template<typename T = float>
-    const T* data() const { return static_cast<const T*>(data_.get()); }
+    void backward();
+    void zero_grad();
 
-    // Shared pointer access for views/reshapes
-    std::shared_ptr<void> data_shared() const { return data_; }
-
-    // Shape manipulation
-    void reshape(const std::vector<int>& new_shape) {
-        // Simple reshape check
-        size_t current_size = size();
-        size_t new_size = std::accumulate(new_shape.begin(), new_shape.end(), 1, std::multiplies<int>());
-        if (current_size != new_size) {
-            throw std::runtime_error("Reshape size mismatch");
-        }
-        shape_ = new_shape;
-        compute_strides();
-    }
+    std::shared_ptr<ArrayImpl> impl() const { return impl_; }
+    bool is_null() const { return !impl_; }
 
 private:
-    void compute_strides() {
-        strides_.resize(shape_.size());
-        size_t stride = 1;
-        for (int i = shape_.size() - 1; i >= 0; i--) {
-            strides_[i] = stride;
-            stride *= shape_[i];
-        }
-    }
+    std::shared_ptr<ArrayImpl> impl_;
+};
 
-    std::vector<int> shape_;
-    std::vector<size_t> strides_;
-    Dtype dtype_;
-    std::shared_ptr<void> data_; // Shared ownership of memory
+class ArrayImpl : public std::enable_shared_from_this<ArrayImpl> {
+public:
+    ArrayImpl(const std::vector<float>& data, const std::vector<int>& shape);
+    ArrayImpl(const std::vector<int>& shape, Dtype dtype);
+    
+    // For sharing data, we need a pointer. But keeping vector alive is tricky with sharing.
+    // Let's stick to shared_ptr but use float* for safety.
+    ArrayImpl(std::shared_ptr<std::vector<float>> data, const std::vector<int>& shape, Dtype dtype);
+    
+    std::vector<int> shape;
+    Dtype dtype;
+    std::shared_ptr<std::vector<float>> data; // Changed from void* to vector
+    
+    std::shared_ptr<ArrayImpl> grad;
+    std::vector<Array> inputs;
+    std::function<void()> backward_op;
+    bool requires_grad = false;
+
+    size_t size() const {
+        size_t s = 1;
+        for (int d : shape) s *= d;
+        return s;
+    }
 };
 
 } // namespace mlx::core

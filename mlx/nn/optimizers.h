@@ -5,6 +5,7 @@
 
 #include "mlx/core/array.h"
 #include <unordered_map>
+#include <map>
 #include <cmath>
 
 namespace mlx::nn {
@@ -16,33 +17,28 @@ public:
     AdamW(float lr = 1e-3, float beta1 = 0.9, float beta2 = 0.999, float eps = 1e-8, float weight_decay = 0.01)
         : lr_(lr), beta1_(beta1), beta2_(beta2), eps_(eps), wd_(weight_decay), t_(0) {}
 
-    void step(std::map<std::string, std::shared_ptr<Array>>& params) {
+    void step(std::map<std::string, Array>& params) {
         t_++;
         for (auto& [name, p] : params) {
-            if (!p->grad) continue;
+            auto grad = p.grad();
+            if (!grad) continue;
 
-            // Initialize moments if needed
             if (m_.find(name) == m_.end()) {
-                m_[name] = std::vector<float>(p->size(), 0.0f);
-                v_[name] = std::vector<float>(p->size(), 0.0f);
+                m_[name] = std::vector<float>(p.size(), 0.0f);
+                v_[name] = std::vector<float>(p.size(), 0.0f);
             }
 
-            float* data = p->data<float>();
-            float* grad = p->grad->data<float>();
+            float* data = p.data();
+            const float* g_data = grad->data();
             auto& m = m_[name];
             auto& v = v_[name];
 
-            for (size_t i = 0; i < p->size(); ++i) {
-                // Weight decay
+            for (size_t i = 0; i < p.size(); ++i) {
                 data[i] -= lr_ * wd_ * data[i];
-
-                // Adam update
-                m[i] = beta1_ * m[i] + (1 - beta1_) * grad[i];
-                v[i] = beta2_ * v[i] + (1 - beta2_) * grad[i] * grad[i];
-
+                m[i] = beta1_ * m[i] + (1 - beta1_) * g_data[i];
+                v[i] = beta2_ * v[i] + (1 - beta2_) * g_data[i] * g_data[i];
                 float m_hat = m[i] / (1 - std::pow(beta1_, t_));
                 float v_hat = v[i] / (1 - std::pow(beta2_, t_));
-
                 data[i] -= lr_ * m_hat / (std::sqrt(v_hat) + eps_);
             }
         }

@@ -186,10 +186,17 @@ endif()
 
 
 
+# LoRA Training Example
+add_executable(train_lora_example
+    train_lora_example.cpp
+)
+
+target_link_libraries(train_lora_example PRIVATE
+    mlx-core-impl
+    mlx-backend-cpu
+)
+
 # Install examples
-
-install(TARGETS vector_add_example matmul_benchmark rmsnorm_benchmark silu_benchmark elemwise_multiply_benchmark rope_benchmark softmax_benchmark attention_test llama_inference llama_inference_real
-
-    RUNTIME DESTINATION bin/examples
-
+install(TARGETS vector_add_example matmul_benchmark rmsnorm_benchmark silu_benchmark elemwise_multiply_benchmark rope_benchmark softmax_benchmark attention_test llama_inference llama_inference_real train_lora_example
+    RUNTIME DESTINATION bin
 )

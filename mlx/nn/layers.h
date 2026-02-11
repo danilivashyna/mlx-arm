@@ -7,6 +7,7 @@
 #include "mlx/core/ops.h"
 #include <cmath>
 #include <cstring>
+#include <cstdlib>
 
 namespace mlx::nn {
 
@@ -18,16 +19,21 @@ using namespace mlx::core;
 class Linear : public Module {
 public:
     Linear(int input_dims, int output_dims, bool bias = true) {
-        register_parameter("weight", Array({output_dims, input_dims})); 
+        Array weight({output_dims, input_dims});
+        float scale = std::sqrt(1.0f / input_dims);
+        float* w_ptr = weight.data();
+        for (size_t i = 0; i < weight.size(); ++i) {
+            w_ptr[i] = (static_cast<float>(rand()) / static_cast<float>(RAND_MAX) * 2.0f - 1.0f) * scale;
+        }
+        register_parameter("weight", weight); 
+        
         if (bias) {
-            register_parameter("bias", Array({output_dims}));
+            Array b({output_dims});
+            register_parameter("bias", b);
         }
     }
 
     Array operator()(const Array& x) override {
-        // x: [..., in_dims], weight: [out_dims, in_dims]
-        // matmul expects [M, K] and [K, N]. 
-        // If x is [M, in_dims] and weight is [out_dims, in_dims], we need weight.T [in_dims, out_dims]
         auto out = matmul(x, transpose(*(parameters_["weight"]), {1, 0}));
         if (parameters_.count("bias")) {
             out = add(out, *(parameters_["bias"]));
@@ -49,12 +55,17 @@ public:
 
         // LoRA matrices A and B
         // A is [r, input_dims], B is [output_dims, r]
-        register_parameter("lora_a", Array({r, input_dims}));
-        register_parameter("lora_b", Array({output_dims, r}));
+        Array lora_a({r, input_dims});
+        Array lora_b({output_dims, r});
         
-        // Initialize A with small random or Kaiming, B with zeros
-        // For now, zeros for B ensures LoRA is identity at start
-        std::memset(parameters_["lora_b"]->data(), 0, parameters_["lora_b"]->size() * sizeof(float));
+        // Initialize A and B with small values
+        float* a_ptr = lora_a.data();
+        float* b_ptr = lora_b.data();
+        for (size_t i = 0; i < lora_a.size(); ++i) a_ptr[i] = (static_cast<float>(rand()) / static_cast<float>(RAND_MAX) * 2.0f - 1.0f) * 0.01f;
+        for (size_t i = 0; i < lora_b.size(); ++i) b_ptr[i] = (static_cast<float>(rand()) / static_cast<float>(RAND_MAX) * 2.0f - 1.0f) * 0.01f;
+
+        register_parameter("lora_a", lora_a);
+        register_parameter("lora_b", lora_b);
     }
 
     Array operator()(const Array& x) override {
@@ -83,7 +94,10 @@ private:
 class RMSNorm : public Module {
 public:
     RMSNorm(int dims, float eps = 1e-5) : eps_(eps) {
-        register_parameter("weight", Array({dims}));
+        Array weight({dims});
+        float* w_ptr = weight.data();
+        for (size_t i = 0; i < weight.size(); ++i) w_ptr[i] = 1.0f;
+        register_parameter("weight", weight);
     }
 
     Array operator()(const Array& x) override {
@@ -100,20 +114,26 @@ private:
 class Embedding : public Module {
 public:
     Embedding(int num_embeddings, int dims) {
-        register_parameter("weight", Array({num_embeddings, dims}));
+        Array weight({num_embeddings, dims});
+        float* w_ptr = weight.data();
+        for (size_t i = 0; i < weight.size(); ++i) {
+            w_ptr[i] = (static_cast<float>(rand()) / static_cast<float>(RAND_MAX) * 2.0f - 1.0f) * 0.02f;
+        }
+        register_parameter("weight", weight);
     }
 
     Array operator()(const Array& x) override {
-        const float* weight_ptr = parameters_["weight"]->data<float>();
+        const float* weight_ptr = parameters_["weight"]->data();
         int dims = parameters_["weight"]->shape()[1];
         
         // Assuming x contains int32 indices
         std::vector<float> res_data(x.size() * dims);
-        // We need to handle different input types, but for now assume float cast to int
-        const float* indices = x.data<float>();
+        const float* indices = x.data();
         
         for (size_t i = 0; i < x.size(); ++i) {
             int idx = static_cast<int>(indices[i]);
+            if (idx < 0) idx = 0;
+            if (idx >= parameters_["weight"]->shape()[0]) idx = parameters_["weight"]->shape()[0] - 1;
             std::memcpy(res_data.data() + i * dims, weight_ptr + idx * dims, dims * sizeof(float));
         }
         
