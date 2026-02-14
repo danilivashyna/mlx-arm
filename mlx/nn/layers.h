@@ -151,23 +151,7 @@ public:
     }
 
     Array operator()(const Array& x) override {
-        const float* weight_ptr = parameters_["weight"]->data();
-        int dims = parameters_["weight"]->shape()[1];
-        
-        // Assuming x contains int32 indices
-        std::vector<float> res_data(x.size() * dims);
-        const float* indices = x.data();
-        
-        for (size_t i = 0; i < x.size(); ++i) {
-            int idx = static_cast<int>(indices[i]);
-            if (idx < 0) idx = 0;
-            if (idx >= parameters_["weight"]->shape()[0]) idx = parameters_["weight"]->shape()[0] - 1;
-            std::memcpy(res_data.data() + i * dims, weight_ptr + idx * dims, dims * sizeof(float));
-        }
-        
-        std::vector<int> out_shape = x.shape();
-        out_shape.push_back(dims);
-        return Array(res_data, out_shape);
+        return embedding(*(parameters_["weight"]), x);
     }
 };
 

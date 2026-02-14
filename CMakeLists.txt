@@ -41,8 +41,12 @@ if(MLX_BUILD_VULKAN)
 endif()
 
 if(MLX_BUILD_OPENCL)
-    find_package(OpenCL REQUIRED)
-    message(STATUS "Found OpenCL: ${OpenCL_VERSION}")
+    if(NOT MLX_ANDROID)
+        find_package(OpenCL REQUIRED)
+        message(STATUS "Found OpenCL: ${OpenCL_VERSION}")
+    else()
+        message(STATUS "OpenCL backend enabled (dynamic loading for Android)")
+    endif()
 endif()
 
 # CPU features detection

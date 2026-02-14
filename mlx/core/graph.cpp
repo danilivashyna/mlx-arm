@@ -5,6 +5,10 @@
 
 namespace mlx::core {
 
-// Stub implementation
+/* 
+ * Placeholder for graph execution.
+ * Current implementation uses eager execution in ops.cpp.
+ * Lazy evaluation logic will be added here in future versions.
+ */
 
 }  // namespace mlx::core

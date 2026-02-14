@@ -396,4 +396,45 @@ Array slice(const Array& a, const std::vector<int>& start, const std::vector<int
     return res;
 }
 
+Array embedding(const Array& weight, const Array& indices) {
+    int num_embeddings = weight.shape()[0];
+    int dims = weight.shape()[1];
+    std::vector<int> out_shape = indices.shape();
+    out_shape.push_back(dims);
+    
+    Array res(out_shape, weight.dtype());
+    const float* w_ptr = weight.data();
+    const float* i_ptr = indices.data();
+    float* r_ptr = res.data();
+    
+    for (size_t i = 0; i < indices.size(); ++i) {
+        int idx = static_cast<int>(i_ptr[i]);
+        if (idx < 0) idx = 0;
+        if (idx >= num_embeddings) idx = num_embeddings - 1;
+        std::memcpy(r_ptr + i * dims, w_ptr + idx * dims, dims * sizeof(float));
+    }
+
+    res.impl()->inputs = {weight, indices};
+    res.impl()->requires_grad = weight.requires_grad();
+    res.impl()->backward_op = [weight, indices, res]() {
+        if (!weight.requires_grad() || !res.impl()->grad) return;
+        ensure_grad(weight);
+        float* wg = weight.impl()->grad->data->data();
+        float* gy = res.impl()->grad->data->data();
+        const float* i_ptr = indices.data();
+        int num_embeddings = weight.shape()[0];
+        int dims = weight.shape()[1];
+        
+        for (size_t i = 0; i < indices.size(); ++i) {
+            int idx = static_cast<int>(i_ptr[i]);
+            if (idx < 0) idx = 0;
+            if (idx >= num_embeddings) idx = num_embeddings - 1;
+            for (int d = 0; d < dims; ++d) {
+                wg[idx * dims + d] += gy[i * dims + d];
+            }
+        }
+    };
+    return res;
+}
+
 } // namespace mlx::core

@@ -196,6 +196,10 @@ target_link_libraries(train_lora_example PRIVATE
     mlx-backend-cpu
 )
 
+if(MLX_BUILD_OPENCL)
+    target_link_libraries(train_lora_example PRIVATE mlx-backend-opencl)
+endif()
+
 # Install examples
 install(TARGETS vector_add_example matmul_benchmark rmsnorm_benchmark silu_benchmark elemwise_multiply_benchmark rope_benchmark softmax_benchmark attention_test llama_inference llama_inference_real train_lora_example
     RUNTIME DESTINATION bin

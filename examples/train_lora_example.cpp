@@ -3,6 +3,7 @@
 #include "mlx/nn/utils.h"
 #include "mlx/core/ops.h"
 #include "mlx/core/safetensors.hpp"
+#include "mlx/backend/opencl/cl_context.h"
 #include <iostream>
 #include <vector>
 
@@ -10,6 +11,9 @@ using namespace mlx::core;
 using namespace mlx::nn;
 
 int main() {
+    // 0. Initialize GPU (OpenCL) - Disabled for now
+    // opencl::OpenCLContext::instance();
+
     // 1. Configuration - Small for Termux RAM
     LlamaConfig config;
     config.vocab_size = 2000; // Small vocab to save RAM

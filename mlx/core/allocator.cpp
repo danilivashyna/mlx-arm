@@ -62,7 +62,6 @@ void AndroidUnifiedAllocator::deallocate(void* ptr) {
         free(ptr);
     }
 }
-
 void AndroidUnifiedAllocator::sync_to_device(void* ptr, size_t size) { }
 void AndroidUnifiedAllocator::sync_to_host(void* ptr, size_t size) { }
 

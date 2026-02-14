@@ -73,6 +73,11 @@ public:
      */
     const VkPhysicalDeviceFeatures& features() const { return features_; }
 
+    /**
+     * Find suitable memory type index for given requirements and properties
+     */
+    uint32_t find_memory_type(uint32_t type_filter, VkMemoryPropertyFlags properties) const;
+
 private:
     bool create_logical_device();
     bool create_command_pool();

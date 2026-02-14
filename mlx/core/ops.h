@@ -21,5 +21,6 @@ Array transpose(const Array& a, const std::vector<int>& axes);
 Array cross_entropy(const Array& logits, const Array& targets);
 Array concat(const std::vector<Array>& arrays, int axis = 0);
 Array slice(const Array& a, const std::vector<int>& start, const std::vector<int>& end);
+Array embedding(const Array& weight, const Array& indices);
 
 } // namespace mlx::core
