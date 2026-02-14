@@ -103,19 +103,18 @@ bool matmul_gpu(const float* A, const float* B, float* C,
         bufferB.write(B, 0, sizeB);
         
         // Load pipeline
-        std::string shader = use_tiled ? "shaders/matmul_tiled.spv" : "shaders/matmul_naive.spv";
+        std::string shader = use_tiled ? "matmul_tiled" : "matmul_naive";
         VulkanPipeline pipeline(*g_device, shader, 3 * sizeof(uint32_t));
         
         // Create descriptor set
         VkDescriptorSet descSet = pipeline.createDescriptorSet();
-        VkBuffer buffers[] = {bufferA.buffer(), bufferB.buffer(), bufferC.buffer()};
-        pipeline.updateDescriptorSet(descSet, buffers, 3);
+        pipeline.updateDescriptorSet(descSet, {bufferA.buffer(), bufferB.buffer(), bufferC.buffer()});
         
         // Record commands
-        VulkanCommandBuffer cmd(*g_device);
+        VulkanCommand cmd(*g_device);
         cmd.begin();
         cmd.bindPipeline(pipeline);
-        cmd.bindDescriptorSets(pipeline, descSet);
+        cmd.bindDescriptorSet(pipeline, descSet);
         
         // Push constants: M, K, N
         uint32_t dims[3] = {M, K, N};
@@ -169,18 +168,17 @@ bool matmul_gpu_fp16(const float* A, const float* B, float* C,
         bufferB.write(B_fp16.data(), 0, sizeB);
         
         // Load FP16 pipeline
-        VulkanPipeline pipeline(*g_device, "shaders/matmul_fp16.spv", 3 * sizeof(uint32_t));
+        VulkanPipeline pipeline(*g_device, "matmul_fp16", 3 * sizeof(uint32_t));
         
         // Create descriptor set
         VkDescriptorSet descSet = pipeline.createDescriptorSet();
-        VkBuffer buffers[] = {bufferA.buffer(), bufferB.buffer(), bufferC.buffer()};
-        pipeline.updateDescriptorSet(descSet, buffers, 3);
+        pipeline.updateDescriptorSet(descSet, {bufferA.buffer(), bufferB.buffer(), bufferC.buffer()});
         
         // Record commands
-        VulkanCommandBuffer cmd(*g_device);
+        VulkanCommand cmd(*g_device);
         cmd.begin();
         cmd.bindPipeline(pipeline);
-        cmd.bindDescriptorSets(pipeline, descSet);
+        cmd.bindDescriptorSet(pipeline, descSet);
         
         // Push constants: M, K, N
         uint32_t dims[3] = {M, K, N};
@@ -250,18 +248,17 @@ bool matmul_gpu_vectorized(const float* A, const float* B, float* C,
         bufferB.write(B_T_padded.data(), 0, sizeB);
         
         // Load vectorized pipeline (4 push constants: M, N, K, K_vec4)
-        VulkanPipeline pipeline(*g_device, "shaders/matmul_vectorized.spv", 4 * sizeof(uint32_t));
+        VulkanPipeline pipeline(*g_device, "matmul_vectorized", 4 * sizeof(uint32_t));
         
         // Create descriptor set
         VkDescriptorSet descSet = pipeline.createDescriptorSet();
-        VkBuffer buffers[] = {bufferA.buffer(), bufferB.buffer(), bufferC.buffer()};
-        pipeline.updateDescriptorSet(descSet, buffers, 3);
+        pipeline.updateDescriptorSet(descSet, {bufferA.buffer(), bufferB.buffer(), bufferC.buffer()});
         
         // Record commands
-        VulkanCommandBuffer cmd(*g_device);
+        VulkanCommand cmd(*g_device);
         cmd.begin();
         cmd.bindPipeline(pipeline);
-        cmd.bindDescriptorSets(pipeline, descSet);
+        cmd.bindDescriptorSet(pipeline, descSet);
         
         // Push constants: M, N, K, K_vec4
         uint32_t dims[4] = {M, N, K, K_vec4};
@@ -307,18 +304,17 @@ bool matmul_gpu_subgroup(const float* A, const float* B, float* C,
         bufferB.write(B, 0, sizeB);
         
         // Load subgroup pipeline
-        VulkanPipeline pipeline(*g_device, "shaders/matmul_subgroup.spv", 3 * sizeof(uint32_t));
+        VulkanPipeline pipeline(*g_device, "matmul_subgroup", 3 * sizeof(uint32_t));
         
         // Create descriptor set
         VkDescriptorSet descSet = pipeline.createDescriptorSet();
-        VkBuffer buffers[] = {bufferA.buffer(), bufferB.buffer(), bufferC.buffer()};
-        pipeline.updateDescriptorSet(descSet, buffers, 3);
+        pipeline.updateDescriptorSet(descSet, {bufferA.buffer(), bufferB.buffer(), bufferC.buffer()});
         
         // Record commands
-        VulkanCommandBuffer cmd(*g_device);
+        VulkanCommand cmd(*g_device);
         cmd.begin();
         cmd.bindPipeline(pipeline);
-        cmd.bindDescriptorSets(pipeline, descSet);
+        cmd.bindDescriptorSet(pipeline, descSet);
         
         // Push constants: M, K, N
         uint32_t dims[3] = {M, K, N};
@@ -378,18 +374,17 @@ bool matmul_gpu_q4_0(const float* A, const float* B, float* C,
         bufferB.write(B_q4.data(), 0, sizeB);
         
         // 5. Load Q4_0 pipeline (4 push constants: M, N, K, K_blocks)
-        VulkanPipeline pipeline(*g_device, "shaders/matmul_q4_0.spv", 4 * sizeof(uint32_t));
+        VulkanPipeline pipeline(*g_device, "matmul_q4_0", 4 * sizeof(uint32_t));
         
         // Create descriptor set
         VkDescriptorSet descSet = pipeline.createDescriptorSet();
-        VkBuffer buffers[] = {bufferA.buffer(), bufferB.buffer(), bufferC.buffer()};
-        pipeline.updateDescriptorSet(descSet, buffers, 3);
+        pipeline.updateDescriptorSet(descSet, {bufferA.buffer(), bufferB.buffer(), bufferC.buffer()});
         
         // 6. Record commands
-        VulkanCommandBuffer cmd(*g_device);
+        VulkanCommand cmd(*g_device);
         cmd.begin();
         cmd.bindPipeline(pipeline);
-        cmd.bindDescriptorSets(pipeline, descSet);
+        cmd.bindDescriptorSet(pipeline, descSet);
         
         // Push constants: M, N, K, K_blocks
         uint32_t dims[4] = {M, N, K, K_blocks};

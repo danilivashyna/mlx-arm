@@ -192,12 +192,12 @@ add_executable(train_lora_example
 )
 
 target_link_libraries(train_lora_example PRIVATE
-    mlx-core-impl
-    mlx-backend-cpu
+    mlx-core
 )
 
-if(MLX_BUILD_OPENCL)
-    target_link_libraries(train_lora_example PRIVATE mlx-backend-opencl)
+if(MLX_BUILD_VULKAN)
+    target_link_libraries(train_lora_example PRIVATE mlx-backend-vulkan)
+    target_compile_definitions(train_lora_example PRIVATE MLX_BUILD_VULKAN)
 endif()
 
 # Install examples

@@ -10,7 +10,7 @@
 namespace mlx::core {
 
 class Array;
-class Stream;
+class Stream {};
 
 /**
  * Abstract backend interface for executing operations

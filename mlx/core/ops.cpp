@@ -3,6 +3,7 @@
 
 #include "mlx/core/ops.h"
 #include "mlx/core/array.h"
+#include "mlx/backend/vulkan/vulkan_backend.h"
 #include <cmath>
 #include <stdexcept>
 #include <numeric>
@@ -82,12 +83,25 @@ Array matmul(const Array& a, const Array& b) {
     int M = a.shape()[a.ndim()-2], K = a.shape().back(), N = b.shape().back();
     auto rs = a.shape(); rs.back() = N;
     Array res(rs, a.dtype());
-    float *rp = res.data(); const float *ap = a.data(), *bp = b.data();
-    for (int i = 0; i < M; ++i)
-        for (int k = 0; k < K; ++k) {
-            float av = ap[i * K + k];
-            for (int j = 0; j < N; ++j) rp[i * N + j] += av * bp[k * N + j];
+
+    auto& vk = backend::vulkan::VulkanBackend::get_instance();
+    if (vk.is_available() && M >= 128 && N >= 128) {
+        printf("DEBUG: Offloading matmul %dx%dx%d to Vulkan GPU\n", M, K, N);
+        std::vector<Array> out = {res};
+        vk.execute("matmul", {a, b}, out, Stream());
+    } else {
+        float *rp = res.data(); const float *ap = a.data(), *bp = b.data();
+        std::fill(rp, rp + res.size(), 0.0f);
+        for (int i = 0; i < M; ++i) {
+            for (int k = 0; k < K; ++k) {
+                float av = ap[i * K + k];
+                for (int j = 0; j < N; ++j) {
+                    rp[i * N + j] += av * bp[k * N + j];
+                }
+            }
         }
+    }
+
     res.impl()->requires_grad = a.requires_grad() || b.requires_grad();
     res.impl()->inputs = {a, b};
     res.impl()->backward_op = [a, b, res]() {

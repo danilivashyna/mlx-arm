@@ -85,20 +85,19 @@ bool run_vector_add_gpu(const std::vector<float>& a, const std::vector<float>& b
         bufferB.write(b.data(), 0, buffer_size);
         
         // Load compute pipeline
-        std::string shader_path = "shaders/vector_add.spv";
-        VulkanPipeline pipeline(*device, shader_path, sizeof(uint32_t));
+        std::string shader_name = "vector_add";
+        VulkanPipeline pipeline(*device, shader_name, sizeof(uint32_t));
         
         // Create descriptor set
         VkDescriptorSet descSet = pipeline.createDescriptorSet();
-        VkBuffer buffers[] = {bufferA.buffer(), bufferB.buffer(), bufferC.buffer()};
-        pipeline.updateDescriptorSet(descSet, buffers, 3);
+        pipeline.updateDescriptorSet(descSet, {bufferA.buffer(), bufferB.buffer(), bufferC.buffer()});
         
         // Record and execute compute commands
-        VulkanCommandBuffer cmd(*device);
+        VulkanCommand cmd(*device);
         cmd.begin();
         
         cmd.bindPipeline(pipeline);
-        cmd.bindDescriptorSets(pipeline, descSet);
+        cmd.bindDescriptorSet(pipeline, descSet);
         
         uint32_t size = static_cast<uint32_t>(N);
         cmd.pushConstants(pipeline, &size, sizeof(uint32_t));
